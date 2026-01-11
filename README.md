@@ -44,18 +44,23 @@ dune build
 ```
 
 ### 运行示例 (Run Examples)
+
+**推荐顺序**：
 ```bash
-# 原版 sub（无 async）
+# 1. 原版 sub（无 async，对比基线）
 ./_build/default/src/sub/sub.exe examples/00_sub_only.sub
+# 输出: - : int = 25
 
-# 基础 async 演示
+# 2. 基础 async 演示（推荐从这个开始）
 ./_build/default/src/sub_async/sub_async.exe examples/01_basic.sub
+# 输出: 161（观察日志中的 continuation 调用）
 
-# 非确定性调度
+# 3. 非确定性调度（多次运行观察不同顺序）
 ./_build/default/src/sub_async/sub_async.exe examples/02_nondeterministic.sub
 
-# Fire-and-forget 模式
+# 4. Fire-and-forget 模式（观察无 continuation 调用）
 ./_build/default/src/sub_async/sub_async.exe examples/03_fire_and_forget.sub
+# 输出: 42（注意日志里没有 "calling continuations"）
 ```
 
 ---
@@ -78,9 +83,9 @@ x + 10                      (* 使用 x 时注册 continuation *)
 ```
 
 **行为 (Behavior)**：
-- ✅ **非阻塞**：`async` 立即返回 `Future id`，不等待任务完成
-- ✅ **隐式等待**：使用 future 值时调用 `ContinuationStore.await`，注册 continuation
-- ✅ **自动通知**：任务完成时调用 `ContinuationStore.complete`，执行 `List.iter (fun k -> k v) ks`
+- **非阻塞**：`async` 立即返回 `Future id`，不等待任务完成
+- **隐式等待**：使用 future 值时调用 `ContinuationStore.await`，注册 continuation
+- **自动通知**：任务完成时调用 `ContinuationStore.complete`，执行 `List.iter (fun k -> k v) ks`
 
 ### ContinuationStore 模块
 
@@ -92,14 +97,9 @@ module ContinuationStore = struct
     | Pending of expr * environment * continuation list
     | Completed of expr
 
-  (* 创建 future - 第88-102行 *)
-  val create : expr -> environment -> int
-  
-  (* 注册 continuation - 第105-113行 *)
-  val await : int -> continuation -> unit
-  
-  (* 完成并通知 - 第78-86行 *)
-  val complete : int -> expr -> unit
+  val create : expr -> environment -> int       (* 第88-102行 *)
+  val await : int -> continuation -> unit       (* 第105-113行 *)
+  val complete : int -> expr -> unit            (* 第78-86行 *)
 end
 ```
 
@@ -130,16 +130,16 @@ end
 ### 空间解耦 (Space Decoupling)
 `async e` 不指定谁来执行任务 — 进入全局队列，由 Scheduler 随机选择。
 
-**实现位置**：[src/sub_async/eval.ml 第257-260行](src/sub_async/eval.ml#L257-L260) → `ContinuationStore.create`
+**代码位置**：[eval.ml 第257-260行](src/sub_async/eval.ml#L257-L260) → `ContinuationStore.create`
 
 ### 时间解耦 (Time Decoupling)  
-`create` 立即返回 future ID；任务异步执行。**任务完成时，`complete` 函数 call 所有注册的 continuations**。
+`create` 立即返回 future ID；任务异步执行。任务完成时，`complete` 函数 call 所有注册的 continuations。
 
-**实现位置**：
+**代码位置**：
 - 任务调度：[eval.ml 第88-102行](src/sub_async/eval.ml#L88-L102) → `Scheduler.schedule`
 - 自动通知：[eval.ml 第78-86行](src/sub_async/eval.ml#L78-L86) → `List.iter (fun k -> k v) ks`
 
-### 关键条件 (Key Condition)
+**关键条件**：
 - `ks = []`（无等待者）→ `complete` 不调用任何 continuation（fire-and-forget）
 - `ks ≠ []`（有等待者）→ `complete` 调用所有 continuations
 
@@ -177,8 +177,8 @@ x + y + z
 | 特性 | sub | sub_async |
 |---------|-----|-----------|
 | 求值策略 | Eager | Eager + CPS |
-| 异步支持 | ❌ | ✅ `async e` |
-| Future 类型 | ❌ | ✅ `Future<T>` |
+| 异步支持 | 无 | `async e` |
+| Future 类型 | 无 | `Future<T>` |
 | 核心代码 | ~150 行 | ~286 行 |
 
 **新增关键字**：`async`（定义在 [lexer.mll 第14行](src/sub_async/lexer.mll#L14) 和 [parser.mly 第14行](src/sub_async/parser.mly#L14)）
