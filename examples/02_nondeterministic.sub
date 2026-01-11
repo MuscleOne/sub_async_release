@@ -1,0 +1,24 @@
+# 02_nondeterministic.sub - Non-deterministic scheduling
+#
+# Demonstrates:
+# 1. Multiple async tasks created
+# 2. Scheduler randomly picks which task to execute (run_one_random)
+# 3. Same result, but different execution order each run
+# 4. Dummy variables as scheduling points
+#
+# Usage: Run multiple times to observe different orders
+#   ./sub_async.exe examples/02_nondeterministic.sub
+#   ./sub_async.exe examples/02_nondeterministic.sub  (again)
+#
+# Expected: Futures #0, #1, #2 complete in varying order
+
+let x = async (2 + 3) in
+let y = async (10 * 10) in
+let z = async (7 * 8) in
+let dummy1 = 1 in
+let dummy2 = 2 in
+let dummy3 = 3 in
+let dummy4 = 4 in
+let dummy5 = 5 in
+let dummy6 = 6 in
+x + y + z

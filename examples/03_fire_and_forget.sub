@@ -1,0 +1,20 @@
+# 03_fire_and_forget.sub - Fire-and-forget pattern
+#
+# Demonstrates:
+# 1. `async` creates futures
+# 2. Results are NOT used (no continuation registered)
+# 3. Returns 42 directly
+#
+# Key insight: No "calling continuations" in output!
+#   - Because ks = [] (empty continuation list)
+#   - `List.iter (fun k -> k v) []` does nothing
+#
+# Expected output:
+#   [async] Created future #0, #1, #2
+#   [✓] Future #N completed  (but NO "calling continuations")
+#   Result: 42
+
+let x = async (2 + 3) in
+let y = async (10 * 10) in
+let z = async (7 * 8) in
+42

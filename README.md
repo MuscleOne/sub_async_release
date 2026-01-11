@@ -45,14 +45,17 @@ dune build
 
 ### Run Examples
 ```bash
+# Original sub (no async)
+./_build/default/src/sub/sub.exe examples/00_sub_only.sub
+
 # Basic async demonstration
-./_build/default/src/sub_async/sub_async.exe examples/example_cps.sub
+./_build/default/src/sub_async/sub_async.exe examples/01_basic.sub
 
 # Non-deterministic scheduling
-./_build/default/src/sub_async/sub_async.exe examples/example.sub
+./_build/default/src/sub_async/sub_async.exe examples/02_nondeterministic.sub
 
 # Fire-and-forget pattern
-./_build/default/src/sub_async/sub_async.exe examples/example_fire_and_forget.sub
+./_build/default/src/sub_async/sub_async.exe examples/03_fire_and_forget.sub
 ```
 
 ---
@@ -126,7 +129,14 @@ end
 
 ## Examples
 
-### example_cps.sub
+| File | Purpose |
+|------|---------|
+| `00_sub_only.sub` | Original sub language (baseline, no async) |
+| `01_basic.sub` | Basic async + continuation auto-call |
+| `02_nondeterministic.sub` | Non-deterministic scheduling (run multiple times) |
+| `03_fire_and_forget.sub` | Async without using result (`ks = []`) |
+
+### 01_basic.sub
 Basic demonstration of continuation auto-call:
 ```ocaml
 let x = async (2 + 3) in
@@ -136,10 +146,10 @@ x + y + z
 (* Result: 161 *)
 ```
 
-### example.sub
+### 02_nondeterministic.sub
 Non-deterministic scheduling — run multiple times to observe different execution orders.
 
-### example_fire_and_forget.sub
+### 03_fire_and_forget.sub
 Creates async tasks without using results — no continuations called.
 
 ---

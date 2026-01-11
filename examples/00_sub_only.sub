@@ -1,5 +1,9 @@
-# Example for original sub language (without async)
+# 00_sub_only.sub - Original sub language (no async)
+#
 # Demonstrates: records, subtyping, functions
+# Run with: ./_build/default/src/sub/sub.exe examples/00_sub_only.sub
+#
+# Expected: 25  (3^2 + 4^2)
 
 let square = fun f(x: int): int is x * x in
 let point = {x = 3, y = 4} in

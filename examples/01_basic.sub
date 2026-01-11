@@ -1,0 +1,17 @@
+# 01_basic.sub - Basic async demonstration
+#
+# Demonstrates:
+# 1. `async` creates futures and returns immediately
+# 2. Using future value registers continuation
+# 3. When task completes, `complete` calls all waiting continuations
+#
+# Expected output:
+#   [async] Created future #0, #1, #2
+#   [✓] Future #N completed
+#   [complete] calling continuations
+#   Result: 161  (5 + 100 + 56)
+
+let x = async (2 + 3) in
+let y = async (10 * 10) in  
+let z = async (7 * 8) in
+x + y + z

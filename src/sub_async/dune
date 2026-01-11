@@ -5,11 +5,6 @@
   (until-clean)
   (into ../..)))
 
-(executable
- (name test_async)
- (modules test_async syntax eval type_check)
- (libraries zoo))
-
 (menhir
   (modules parser))
 
