@@ -1,0 +1,32 @@
+# ============================================
+# 示例：Fire-and-Forget（甩手掌柜模式）
+# 功能：创建异步任务但不使用结果
+# ============================================
+#
+# 这个例子展示：
+# 1. `async` 产生3个 future
+# 2. **不使用它们的结果（没有 continuation 注册）**
+# 3. 直接返回42
+#
+# 关键：“call continuation”不会发生！
+#   - 因为没有 continuation 注册到 ks 列表
+#   - 即使任务完成（Scheduler 执行完并调用 complete），ks = []
+#   - `List.iter (fun k -> k v) []` → 什么都不做
+#
+# 微信群类比：
+#   - 丢任务到群，但没人在意结果
+#   - 即使任务完成，也不需要 call 任何 continuation
+#
+# 预期行为：
+#   - 任务被调度但可能不执行（没人等它们）
+#   - 输出 Result: 42
+#   - 日志显示 future 创建但**没有 "complete calling continuations" 消息**
+#
+# 用途：
+#   测试垃圾回收、资源管理（未来扩展）
+#
+
+let x = async (2 + 3) in
+let y = async (10 * 10) in
+let z = async (7 * 8) in
+42

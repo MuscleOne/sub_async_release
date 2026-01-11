@@ -1,0 +1,7 @@
+# Example for original sub language (without async)
+# Demonstrates: records, subtyping, functions
+
+let square = fun f(x: int): int is x * x in
+let point = {x = 3, y = 4} in
+let dist_sq = square(point.x) + square(point.y) in
+dist_sq

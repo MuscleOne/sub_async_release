@@ -1,0 +1,33 @@
+# ============================================
+# 示例：CPS 异步基础演示
+# 功能：展示 "延续自动被 call" 机制
+# ============================================
+#
+# 这个例子展示：
+# 1. `async` 产生3个 future，立即返回
+# 2. 使用结果时自动注册 continuation
+# 3. **任务完成时，`complete` 函数自动 call 等待的 continuation**
+#
+# 微信群类比：
+#   - 丢任务的群友：创建 async，产生 future
+#   - 干活的群友：Scheduler 执行任务（计算 e）
+#   - 等结果的群友：注册 continuation
+#   - 任务完成后：complete 函数 call 所有等待的 continuation
+#
+# "任务完成"指：
+#   - Scheduler 执行完 `eval_cps env e`，得到结果 v
+#   - 调用 `complete id v`
+#
+# 预期输出：
+#   [async] Created future #0, #1, #2  <- async 产生 future
+#   [✓] Future #0 completed         <- 任务完成
+#   [complete] calling continuations  <- complete 函数 call continuation
+#   Result: 161  (5 + 100 + 56)
+#
+# 向 supervisor 汇报用这个例子！
+#
+
+(let x = async (2 + 3) in
+let y = async (10 * 10) in  
+let z = async (7 * 8) in
+x + y + z)
