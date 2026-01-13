@@ -37,6 +37,56 @@ sub_async/
 ### 依赖 (Prerequisites)
 - OCaml 4.14+
 - Dune 3.0+
+- Menhir 2.1+
+
+### 环境配置 (Setup)
+
+#### Ubuntu/Debian 系统
+
+1. **安装 opam（OCaml 包管理器）**：
+   ```bash
+   sudo apt update
+   sudo apt install -y opam
+   ```
+
+2. **初始化 opam 环境**：
+   ```bash
+   opam init -y --disable-sandboxing
+   eval $(opam env)
+   ```
+
+3. **安装构建工具**：
+   ```bash
+   opam install -y dune menhir
+   ```
+
+4. **配置环境变量**（添加到 `~/.bashrc` 或 `~/.profile`）：
+   ```bash
+   echo 'eval $(opam env)' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+#### macOS 系统
+
+1. **安装 opam（使用 Homebrew）**：
+   ```bash
+   brew install opam
+   ```
+
+2. **初始化 opam 并安装工具**：
+   ```bash
+   opam init -y
+   eval $(opam env)
+   opam install -y dune menhir
+   ```
+
+#### 验证安装
+
+```bash
+ocaml -version    # 应显示 4.14.x 或更高
+dune --version    # 应显示 3.0 或更高
+menhir --version  # 应显示 20xx 版本
+```
 
 ### 构建 (Build)
 ```bash
