@@ -111,11 +111,135 @@ dune build
 # 4. Fire-and-forget 模式（观察无 continuation 调用）
 ./_build/default/src/sub_async/sub_async.exe examples/03_fire_and_forget.sub
 # 输出: 42（注意日志里没有 "calling continuations"）
+
+# 5. 🎯 Future 计算图核心演示（v2.0 新增）
+./_build/default/src/sub_async/sub_async.exe examples/04_future_graph.sub
+# 输出: 4（证明 "3+1" 先于 "x+y+z" 执行！）
+# 关键观察: [main] Final result obtained 出现在 futures 完成之前
 ```
 
 ---
 
 ## 核心机制 (Core Mechanism)
+
+### 🆕 Future 计算图 (Future Computation Graph) - v2.0
+
+**重大改进**：运算符 (`+`, `-`, `*`, `/`, `=`, `<`) 现在支持 **惰性依赖**！
+
+#### Before (v1.0 - 阻塞式 await)
+```ocaml
+let x = async (2+3) in        (* Future 0 *)
+let y = async (10*10) in      (* Future 1 *)
+x + y                         (* ❌ 阻塞：await x, 然后 await y, 最后返回结果 *)
+```
+
+**问题**：即使使用 `async`，运算符仍然会 **立即 await**，无法实现真正的并行。
+
+#### After (v2.0 - 依赖型 Future)
+```ocaml
+let x = async (2+3) in        (* Future 0 *)
+let y = async (10*10) in      (* Future 1 *)
+x + y                         (* ✅ 立即返回 Future 2: depends on [0, 1] *)
+```
+
+**关键改变**：
+1. **Plus/Minus/Times/Divide/Equal/Less** 检测操作数是否为 Future
+2. 如果是，创建 **Dependent Future** 而不是 await
+3. 依赖完成时，**自动解析**下游 Future
+
+#### 实现细节
+
+**Dependent Future 状态** ([eval.ml 第58-64行](src/sub_async/eval.ml#L58-L64)):
+```ocaml
+type dependency = {
+  depends_on: int list;              (* 依赖的 Future IDs *)
+  compute: expr list -> expr;        (* 如何组合结果 *)
+  waiters: continuation list;        (* 等待这个 Future 的 continuations *)
+}
+
+type status =
+  | Pending of expr * environment * continuation list
+  | Completed of expr
+  | Dependent of dependency          (* 👈 NEW *)
+```
+
+**Plus 运算符的改写** ([eval.ml 第265-291行](src/sub_async/eval.ml#L265-L291)):
+```ocaml
+| Plus (e1, e2) ->
+    eval_cps env e1 (fun v1 ->
+      eval_cps env e2 (fun v2 ->
+        match v1, v2 with
+        | Future id1, Future id2 ->
+            (* 创建依赖型 Future *)
+            let new_id = create_dependent_future [id1; id2]
+              (fun [v1; v2] -> Int (extract_int v1 + extract_int v2))
+            in
+            k (Future new_id)  (* 👈 立即返回！ *)
+        
+        | Future id, Int n | Int n, Future id ->
+            let new_id = create_dependent_future [id]
+              (fun [v] -> Int (extract_int v + n))
+            in
+            k (Future new_id)
+        
+        | Int n1, Int n2 -> k (Int (n1 + n2))
+```
+
+**依赖解析** ([eval.ml 第98-113行](src/sub_async/eval.ml#L98-L113)):
+```ocaml
+let rec check_and_resolve_dependent id =
+  match Hashtbl.find_opt table id with
+  | Some (Dependent dep) ->
+      let all_completed, values = check_dependencies dep.depends_on in
+      if all_completed then begin
+        let result = dep.compute values in
+        Hashtbl.replace table id (Completed result);
+        List.iter (fun k -> k result) dep.waiters  (* 通知等待者 *)
+      end
+```
+
+#### 效果演示
+
+**嵌套依赖**（examples/04_future_graph.sub）:
+```ocaml
+let x = async (2+3) in           (* Future 0 *)
+let y = async (10*10) in         (* Future 1 *)
+let z = async (7*8) in           (* Future 2 *)
+x + y + z                        (* Future 3 depends on [0,1]
+                                    Future 4 depends on [3,2] *)
+```
+
+**执行日志**:
+```
+[async] Created future #0, #1, #2
+[dependent] Future #3 depends on [0; 1]
+[dependent] Future #4 depends on [3; 2]
+[main] Result is Future #4, awaiting...
+[🎲 running] Futures execute in random order...
+[dependent] Future #3 resolved   ← 自动触发！
+[dependent] Future #4 resolved   ← 级联触发！
+- : int = 161
+```
+
+**关键优势**：
+- ✅ **真正的非阻塞**：运算符立即返回，不等待
+- ✅ **自动依赖追踪**：编译器级别的计算图
+- ✅ **级联解析**：Future A 完成 → Future B 自动检查 → Future C 自动触发
+- ✅ **最大化并发**：所有独立任务并行执行
+
+**对比 JavaScript**:
+```javascript
+// JavaScript Promise
+Promise.all([fetch("api1"), fetch("api2")])
+  .then(([x, y]) => x + y)
+
+// Sub_Async v2.0
+let x = async fetch("api1") in
+let y = async fetch("api2") in
+x + y  (* 自动创建依赖！ *)
+```
+
+---
 
 ### `async e` 语法
 
@@ -203,6 +327,7 @@ end
 | `01_basic.sub` | 基础 async + continuation auto-call |
 | `02_nondeterministic.sub` | 非确定性调度（多次运行观察） |
 | `03_fire_and_forget.sub` | 不使用结果的 async（`ks = []`） |
+| `04_future_graph.sub` | **核心演示**：Future 计算图 (v2.0) |
 
 ### 01_basic.sub
 基础演示 continuation auto-call：
@@ -213,6 +338,31 @@ let z = async (7 * 8) in
 x + y + z
 (* 结果: 161 *)
 ```
+
+### 04_future_graph.sub ⭐
+**v2.0 核心演示**：证明 `3 + 1` 可以在 `x + y + z` 完成前执行！
+
+```ocaml
+let x = async (2 + 3) in           # Future 0
+let y = async (10 * 10) in         # Future 1
+let z = async (7 * 8) in           # Future 2
+let sum = x + y + z in             # Future 3,4 (立即返回！)
+3 + 1                              # ← 立即执行，返回 4
+```
+
+**执行证据**:
+```
+[dependent] Future #3 depends on [0; 1]
+[dependent] Future #4 depends on [3; 2]
+[main] Final result obtained        ← 在 futures 完成前！
+...
+- : int = 4                         ← 3+1 的结果！
+```
+
+**关键点**：
+- ❌ v1.0：`x + y + z` 会 await 所有 futures（阻塞）
+- ✅ v2.0：`x + y + z` 创建 Dependent Future（非阻塞）
+- ✅ 结果：`3 + 1` 立即执行，不等待异步任务完成！
 
 ### 02_nondeterministic.sub
 非确定性调度 — 多次运行观察不同执行顺序。

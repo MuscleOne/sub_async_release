@@ -1,0 +1,23 @@
+# 04_future_graph.sub - Future Computation Graph Test
+#
+# THE KEY TEST: Can "3 + 1" execute before "x + y + z" completes?
+#
+# Answer: YES! Because:
+#   1. x + y + z creates a Dependent Future (returns immediately)
+#   2. The let binding captures the Future
+#   3. "3 + 1" executes immediately without blocking
+#   4. Result: 4 (not waiting for sum to complete!)
+#
+# Expected output:
+#   [async] Created future #0, #1, #2
+#   [dependent] Future #3 depends on [0; 1; 2]  ← Returns immediately!
+#   [main] Final result obtained                 ← Before futures complete!
+#   Result: 4                                    ← "3 + 1" executed!
+#   [🎲 running] Futures execute in background...
+
+let x = async (2 + 3) in           # Future 0
+let y = async (10 * 10) in         # Future 1
+let z = async (7 * 8) in           # Future 2
+let sum = x + y + z in             # Future 3: depends on [0,1,2] - returns immediately!
+3 + 1                              # ← Executes immediately! Returns 4!
+
