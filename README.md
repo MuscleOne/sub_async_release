@@ -163,26 +163,24 @@ x + 1
 
 ## 实现
 
-**核心模块**（[src/sub_async/eval.ml](src/sub_async/eval.ml)）：
+**核心模块**：
 
-- **Scheduler**（14-52行）：非确定性调度
-  - `schedule`：任务入队
-  - `run_one_random`：随机选择任务执行
+- **Scheduler**：非确定性调度
+  - [`schedule`](src/sub_async/eval.ml#L22)：任务入队
+  - [`run_one_random`](src/sub_async/eval.ml#L32-L50)：随机选择任务执行
 
-- **ContinuationStore**（56-187行）：Future 状态管理
-  - `status` 类型（58-62行）：`Pending | Completed | Dependent`
-  - `create`（136-151行）：创建 Future 并调度
-  - `await`（154-174行）：注册 continuation
-  - `complete`（127-133行）：完成时调用 continuations
+- **ContinuationStore**：Future 状态管理
+  - [`status` 类型](src/sub_async/eval.ml#L58-L62)：`Pending | Completed | Dependent`
+  - [`create`](src/sub_async/eval.ml#L136-L151)：创建 Future 并调度
+  - [`await`](src/sub_async/eval.ml#L154-L174)：注册 continuation
+  - [`complete`](src/sub_async/eval.ml#L127-L133)：完成时调用 continuations
 
-- **Dependent Future 解析**（96-125行）：
-  - `check_and_resolve_dependent`：检查依赖并级联触发
-  - `create_dependent_future`（180-217行）：创建依赖型 Future
+- **Dependent Future 解析**：
+  - [`check_and_resolve_dependent`](src/sub_async/eval.ml#L106-L120)：检查依赖并级联触发
+  - [`create_dependent_future`](src/sub_async/eval.ml#L180-L217)：创建依赖型 Future
 
-- **类型系统**（[src/sub_async/type_check.ml](src/sub_async/type_check.ml) 99-101行）：
-  - 协变 `Future<T>` subtyping
-
-核心代码约 581 行（原版 sub 约 150 行）。
+- **类型系统**：
+  - [`Future<T>` 协变 subtyping](src/sub_async/type_check.ml#L99-L101)
 
 ---
 
