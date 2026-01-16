@@ -1,0 +1,47 @@
+# 07_deep_dependency_chain.sub - Deep dependency chain
+#
+# Demonstrates cascading dependencies:
+#   Future 0 -> Future 1 -> Future 2 -> Future 3 -> Future 4
+#
+# Pattern: Each future depends on the previous one
+# Shows automatic cascade resolution when dependencies complete
+#
+# Dependency graph (vertical):
+#   a = async(10)              Future 0 (root)
+#   ↓
+#   b = a + 5                  Future 1: depends on [0]
+#   ↓
+#   c = b * 2                  Future 2: depends on [1]
+#   ↓
+#   d = c - 3                  Future 3: depends on [2]
+#   ↓
+#   e = d + 1                  Future 4: depends on [3]
+#
+# Sync code interleaved:
+#   - "step1" executes before any futures resolve
+#   - "step2" executes in the middle
+#   - Returns step1 + step2 immediately!
+#
+# Expected cascade resolution:
+#   Future 0 completes → Future 1 auto-resolves
+#                      → Future 2 auto-resolves
+#                      → Future 3 auto-resolves
+#                      → Future 4 auto-resolves
+
+# Root async task
+let a = async (10) in              # Future 0: root of dependency chain
+
+# Step 1: Immediate sync computation
+let step1 = 1 + 1 in               # ← Executes immediately! Returns 2
+
+# Dependency chain (all create Dependent Futures)
+let b = a + 5 in                   # Future 1: depends on [0]
+let c = b * 2 in                   # Future 2: depends on [1]
+let d = c - 3 in                   # Future 3: depends on [2]
+let e = d + 1 in                   # Future 4: depends on [3]
+
+# Step 2: More sync computation in the middle
+let step2 = 3 + 4 in               # ← Also immediate! Returns 7
+
+# Return sync result (not waiting for chain!)
+step1 + step2                      # Returns 9 (2 + 7) immediately!

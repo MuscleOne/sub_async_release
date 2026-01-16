@@ -116,6 +116,18 @@ dune build
 ./_build/default/src/sub_async/sub_async.exe examples/04_future_graph.sub
 # 输出: 4（证明 "3+1" 先于 "x+y+z" 执行！）
 # 关键观察: [main] Final result obtained 出现在 futures 完成之前
+
+# 6. 🔗 复杂依赖链（Sequential dependencies: y = x + 1）
+./_build/default/src/sub_async/sub_async.exe examples/05_complex_dependencies.sub
+# 输出: 4（展示 x->y->z 依赖链 + 中间同步代码）
+
+# 7. 🎭 混合模式（async -> sync -> async -> sync）
+./_build/default/src/sub_async/sub_async.exe examples/06_mixed_patterns.sub
+# 输出: 306（展示同步代码不被异步阻塞）
+
+# 8. 📊 深度依赖链（5层级联：a->b->c->d->e）
+./_build/default/src/sub_async/sub_async.exe examples/07_deep_dependency_chain.sub
+# 输出: 9（展示级联自动解析）
 ```
 
 ---
@@ -321,13 +333,16 @@ end
 
 ## 示例说明 (Examples)
 
-| 文件 | 用途 |
-|------|------|
-| `00_sub_only.sub` | 原版 sub 语言（对比基线，无 async） |
-| `01_basic.sub` | 基础 async + continuation auto-call |
-| `02_nondeterministic.sub` | 非确定性调度（多次运行观察） |
-| `03_fire_and_forget.sub` | 不使用结果的 async（`ks = []`） |
-| `04_future_graph.sub` | **核心演示**：Future 计算图 (v2.0) |
+| 文件 | 用途 | 关键特性 |
+|------|------|---------|
+| `00_sub_only.sub` | 原版 sub 语言（对比基线，无 async） | 无异步 |
+| `01_basic.sub` | 基础 async + continuation auto-call | 基础并行 |
+| `02_nondeterministic.sub` | 非确定性调度（多次运行观察） | 随机调度 |
+| `03_fire_and_forget.sub` | 不使用结果的 async（`ks = []`） | Fire-and-forget |
+| `04_future_graph.sub` | **核心演示**：Future 计算图 (v2.0) | 非阻塞运算 |
+| `05_complex_dependencies.sub` | 复杂依赖模式 + 中间同步代码 | 顺序依赖链 |
+| `06_mixed_patterns.sub` | 混合 async/sync 模式 | 交替执行 |
+| `07_deep_dependency_chain.sub` | 深度依赖链（5层级联） | 级联解析 |
 
 ### 01_basic.sub
 基础演示 continuation auto-call：
@@ -364,6 +379,68 @@ let sum = x + y + z in             # Future 3,4 (立即返回！)
 - ✅ v2.0：`x + y + z` 创建 Dependent Future（非阻塞）
 - ✅ 结果：`3 + 1` 立即执行，不等待异步任务完成！
 
+### 05_complex_dependencies.sub
+**复杂依赖模式**：展示顺序依赖链和中间同步代码
+
+```ocaml
+let x = async (10) in              # Future 0
+let y = x + 1 in                   # Future 1: depends on [0]
+let z = y * 2 in                   # Future 2: depends on [1]
+let middle = 3 + 1 in              # ← Sync code! Immediate!
+let final = async (100) in         # Future 3: new async
+let answer = z + final in          # Future 4: depends on [2, 3]
+middle                             # Returns 4 immediately!
+```
+
+**依赖图**：
+```
+Future 0 (async 10)
+  ↓
+Future 1 (x + 1) → depends on [0]
+  ↓
+Future 2 (y * 2) → depends on [1]
+  ↓
+  [sync: 3 + 1] ← 立即执行！
+  ↓
+Future 3 (async 100) → independent
+  ↓
+Future 4 (z + final) → depends on [2, 3]
+```
+
+### 06_mixed_patterns.sub
+**交替模式**：async → sync → async → sync
+
+```ocaml
+let a = async (5) in               # Async
+let b = async (10) in              # Async
+let quick = 2 * 3 in               # ← Sync! Returns 6
+let sum = a + b in                 # Dependent Future
+let another = 100 + 200 in         # ← Sync! Returns 300
+let c = async (20) in              # Async again
+quick + another                    # Returns 306 immediately!
+```
+
+**证明**：所有同步代码立即执行，不被异步任务阻塞！
+
+### 07_deep_dependency_chain.sub
+**5层级联依赖**：展示自动级联解析
+
+```ocaml
+let a = async (10) in              # Future 0
+let b = a + 5 in                   # Future 1 → [0]
+let c = b * 2 in                   # Future 2 → [1]
+let d = c - 3 in                   # Future 3 → [2]
+let e = d + 1 in                   # Future 4 → [3]
+# Result: 9 (sync code returns immediately)
+```
+
+**级联日志**：
+```
+[dependent] Future #1 resolved
+[dependent] Future #2 resolved  ← 自动触发！
+[dependent] Future #3 resolved  ← 级联解析！
+[dependent] Future #4 resolved  ← 全自动！
+```
 ### 02_nondeterministic.sub
 非确定性调度 — 多次运行观察不同执行顺序。
 

@@ -1,0 +1,40 @@
+# 05_complex_dependencies.sub - Complex dependency patterns
+#
+# Demonstrates advanced Future computation graph patterns:
+# 1. Sequential dependencies: y depends on x (y = x + 1)
+# 2. Interleaved synchronous code: 3 + 1 in the middle
+# 3. Final async task after sync code
+# 4. Mix of dependent and independent futures
+#
+# Dependency graph:
+#   Future 0: async(10)
+#   Future 1: depends on [0] (x + 1)
+#   Future 2: depends on [1] (y * 2)
+#   --- sync code: 3 + 1 executes here ---
+#   Future 3: async(100)
+#   Future 4: depends on [2, 3] (result + final)
+#
+# Expected behavior:
+#   - x, y, z form a dependency chain
+#   - "3 + 1" executes immediately (not blocked by futures)
+#   - "final" is independent async task
+#   - "answer" combines dependent future with new async
+#
+# Key insight: Sync code can execute while futures resolve in background!
+
+# Phase 1: Dependency chain (x -> y -> z)
+let x = async (10) in              # Future 0
+let y = x + 1 in                   # Future 1: depends on [0]
+let z = y * 2 in                   # Future 2: depends on [1]
+
+# Phase 2: Synchronous computation (immediate execution!)
+let middle = 3 + 1 in              # ← Executes immediately! Not blocked!
+
+# Phase 3: New async task after sync code
+let final = async (100) in         # Future 3: independent task
+
+# Phase 4: Combine dependent future with new async
+let answer = z + final in          # Future 4: depends on [2, 3]
+
+# Return the synchronous result
+middle                             # Returns 4 immediately!

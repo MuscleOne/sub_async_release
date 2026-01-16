@@ -1,0 +1,33 @@
+# 06_mixed_patterns.sub - Mixed synchronous and asynchronous patterns
+#
+# Demonstrates realistic code mixing patterns:
+# 1. Async tasks at the beginning
+# 2. Sync computation in the middle
+# 3. More async tasks after sync
+# 4. Final result combines everything
+#
+# Pattern: async -> sync -> async -> sync -> result
+#
+# Expected: All sync code executes immediately without blocking!
+
+# Initial async tasks
+let a = async (5) in               # Future 0
+let b = async (10) in              # Future 1
+
+# Sync computation (immediate!)
+let quick = 2 * 3 in               # ← Executes immediately! Returns 6
+
+# Dependent futures
+let sum = a + b in                 # Future 2: depends on [0, 1]
+
+# More sync code (still immediate!)
+let another = 100 + 200 in         # ← Also executes immediately! Returns 300
+
+# More async after sync
+let c = async (20) in              # Future 3
+
+# Complex dependency
+let result = sum + c in            # Future 4: depends on [2, 3]
+
+# Return sync value (not waiting for async!)
+quick + another                    # Returns 306 (6 + 300) immediately!
