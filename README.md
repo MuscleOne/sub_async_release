@@ -169,11 +169,43 @@ fetch → transform → validate → save
 
 ## 设计理念
 
-### 空间解耦
-`async e` 进入全局队列，Scheduler 随机选择执行。
+### 空间解耦 (Space Decoupling)
 
-### 时间解耦
+**传统 OOP 方式**：
+```python
+obj.method(arg)      # 必须指定 obj
+thread1.submit(task) # 必须指定 thread1
+executor.execute(f)  # 必须指定 executor
+```
+
+**Sub_Async 方式**：
+```ocaml
+async (2 + 3)  (* 只说"做什么"，不说"谁来做" *)
+```
+
+`async` 语义就是"丢出去"：
+- 任务进入全局队列
+- Scheduler 随机选择执行
+- 不绑定执行者身份/位置/线程
+
+**核心**：解耦任务定义与执行空间。
+
+### 时间解耦 (Time Decoupling)
+
 `async` 立即返回，任务完成后自动调用 continuations。
+
+**对比**：
+```ocaml
+(* 同步：阻塞等待 *)
+let x = compute() in  (* 等待完成 *)
+x + 1
+
+(* 异步：立即返回 *)
+let x = async (compute()) in  (* 立即返回 Future *)
+x + 1  (* 创建 Dependent Future，非阻塞 *)
+```
+
+**核心**：解耦任务发起与结果获取。
 
 ### DAG by Design
 - Let 绑定强制顺序
