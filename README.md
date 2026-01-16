@@ -92,81 +92,6 @@ type dependency = {
 
 ---
 
-## 示例
-
-| 文件 | 说明 |
-|------|------|
-| `00_sub_only.sub` | 原版 sub（无 async） |
-| `01_basic.sub` | 基础用法 |
-| `03_fire_and_forget.sub` | Fire-and-forget 模式 |
-| `04_future_graph.sub` | 非阻塞运算符演示 |
-| `10_fibonacci.sub` | Fibonacci 数据流 |
-| `11_diamond_dependency.sub` | Diamond 模式 |
-| `12_mapreduce.sub` | MapReduce 模式 |
-| `13_pipeline.sub` | Pipeline 流水线 |
-
-### 04_future_graph.sub
-
-```ocaml
-let x = async (2 + 3) in
-let y = async (10 * 10) in
-let z = async (7 * 8) in
-let sum = x + y + z in
-3 + 1  (* 返回 4 *)
-```
-
-输出：
-```
-[dependent] Future #3 depends on [0; 1]
-[dependent] Future #4 depends on [3; 2]
-[main] Final result obtained
-- : int = 4
-```
-
-`3 + 1` 先于异步任务完成返回。
-
----
-
-## 经典并发模式
-
-### Diamond（Fork-Join）
-
-```
-      fetch_user
-       /      \
-  validate  check_quota
-       \      /
-    create_order
-```
-
-示例：`examples/11_diamond_dependency.sub`
-
-### MapReduce
-
-```
-map1  map2  map3  map4
-   \    |    |   /
-      reduce
-```
-
-示例：`examples/12_mapreduce.sub`
-
-### Pipeline
-
-```
-fetch → transform → validate → save
-```
-
-示例：`examples/13_pipeline.sub`
-
-### Fibonacci
-
-链状依赖的级联解析。
-
-示例：`examples/10_fibonacci.sub`
-
----
-
 ## 设计理念
 
 ### 空间解耦 (Space Decoupling)
@@ -216,6 +141,23 @@ x + 1
 - Future 不可变
 
 理论上不可能产生环。
+
+---
+
+## 示例
+
+| 文件 | 说明 |
+|------|------|
+| `00_sub_only.sub` | 原版 sub（无 async） |
+| `01_basic.sub` | 基础用法 |
+| `03_fire_and_forget.sub` | Fire-and-forget 模式 |
+| `04_future_graph.sub` | 非阻塞运算符 |
+| `10_fibonacci.sub` | Fibonacci 数据流 |
+| `11_diamond_dependency.sub` | Diamond（Fork-Join） |
+| `12_mapreduce.sub` | MapReduce |
+| `13_pipeline.sub` | Pipeline 流水线 |
+
+详见各文件内注释。
 
 ---
 
