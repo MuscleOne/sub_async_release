@@ -1,0 +1,32 @@
+# Pipeline Pattern - Streaming Data Processing
+#
+# Pattern:
+#   fetch → transform → validate → save
+#   (cascading dependencies)
+#
+# Real-world scenario:
+# - Stage 1: Fetch data from API (async IO)
+# - Stage 2: Transform/parse data (depends on fetch)
+# - Stage 3: Validate business rules (depends on transform)
+# - Stage 4: Save to database (depends on validate)
+#
+# Key Benefits:
+# 1. Auto Cascade: Each stage automatically triggers next stage
+# 2. Time Decoupling: Stages execute as soon as dependencies are ready
+# 3. Clear Data Flow: Linear dependency chain is explicit
+
+# Stage 1: Fetch data from API
+let raw_data = async (1000) in         # Future 0: API response
+
+# Stage 2: Transform (parse, normalize)
+let parsed = raw_data + 100 in         # Future 1: depends on [0] -> 1100
+
+# Stage 3: Validate business rules
+let validated = parsed * 2 in          # Future 2: depends on [1] -> 2200
+
+# Stage 4: Save to database
+let saved = validated + 1 in           # Future 3: depends on [2] -> 2201
+
+# Return status code
+let status = 200 in
+saved  # Returns Future<2201>

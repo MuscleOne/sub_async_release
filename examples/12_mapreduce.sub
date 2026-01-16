@@ -1,0 +1,38 @@
+# MapReduce Pattern - Classic Parallel Computing
+#
+# Pattern:
+#   map1  map2  map3  map4   (parallel processing)
+#      \    |    |    /
+#         reduce          (aggregation)
+#
+# Real-world scenario:
+# - Process 4 data chunks in parallel (space decoupling)
+# - Aggregate results when all chunks are done (time decoupling)
+#
+# Example: Calculate sum of squared values
+# - Map: chunk → chunk²
+# - Reduce: sum all squared values
+#
+# Key Benefits:
+# 1. Maximum Parallelism: All map tasks execute concurrently
+# 2. Auto Synchronization: Reduce waits for all maps automatically
+# 3. Random Scheduling: Map tasks execute in any order (space decoupling)
+
+# Map phase: Process 4 chunks in parallel
+let chunk1 = async (10) in         # Future 0
+let chunk2 = async (20) in         # Future 1
+let chunk3 = async (30) in         # Future 2
+let chunk4 = async (40) in         # Future 3
+
+# Map: Square each chunk (still parallel, depends on individual futures)
+let sq1 = chunk1 * chunk1 in       # Future 4: depends on [0] -> 100
+let sq2 = chunk2 * chunk2 in       # Future 5: depends on [1] -> 400
+let sq3 = chunk3 * chunk3 in       # Future 6: depends on [2] -> 900
+let sq4 = chunk4 * chunk4 in       # Future 7: depends on [3] -> 1600
+
+# Reduce: Sum all squared values
+let sum12 = sq1 + sq2 in           # Future 8: depends on [4, 5]
+let sum34 = sq3 + sq4 in           # Future 9: depends on [6, 7]
+let total = sum12 + sum34 in       # Future 10: depends on [8, 9] -> 3000
+
+total  # Returns Future<3000>

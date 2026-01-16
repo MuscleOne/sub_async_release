@@ -128,6 +128,18 @@ dune build
 # 8. 📊 深度依赖链（5层级联：a->b->c->d->e）
 ./_build/default/src/sub_async/sub_async.exe examples/07_deep_dependency_chain.sub
 # 输出: 9（展示级联自动解析）
+
+# 9. 🔶 Diamond 依赖（经典 Fork-Join 模式）
+./_build/default/src/sub_async/sub_async.exe examples/11_diamond_dependency.sub
+# 输出: 2003（两个独立任务并行，结果自动汇总）
+
+# 10. 🗺️ MapReduce（4个map + 2级reduce）
+./_build/default/src/sub_async/sub_async.exe examples/12_mapreduce.sub
+# 输出: 3000（10²+20²+30²+40² = 3000）
+
+# 11. 🌊 Pipeline 流水线（4阶段级联）
+./_build/default/src/sub_async/sub_async.exe examples/13_pipeline.sub
+# 输出: 2201（fetch→transform→validate→save）
 ```
 
 ---
@@ -311,6 +323,69 @@ end
 
 ---
 
+## 经典并发模式展示 (Classic Concurrency Patterns)
+
+我们的空间/时间解耦设计天然支持经典并发算法：
+
+### 🔷 Diamond 依赖（Fork-Join）
+
+**空间解耦体现**：`validate` 和 `check_quota` 随机调度，谁先谁后不确定
+**时间解耦体现**：`create_order` 自动等待两个依赖，无需手动同步
+
+```
+      fetch_user
+       /      \
+  validate  check_quota  ← 并行执行（空间解耦）
+       \      /
+    create_order         ← 自动等待（时间解耦）
+```
+
+示例：[examples/11_diamond_dependency.sub](examples/11_diamond_dependency.sub)
+
+### 🗺️ MapReduce 模式
+
+**空间解耦体现**：4个map任务随机调度，最大化并行度
+**时间解耦体现**：Reduce阶段自动等待所有map完成
+
+```
+map1  map2  map3  map4   ← 全部并行（空间解耦）
+   \    |    |   /
+      reduce           ← 自动汇总（时间解耦）
+```
+
+示例：[examples/12_mapreduce.sub](examples/12_mapreduce.sub)
+
+### 🌊 Pipeline 流水线
+
+**时间解耦体现**：每阶段完成自动触发下游，无需手动推送
+
+```
+fetch → transform → validate → save  ← 级联触发（时间解耦）
+```
+
+示例：[examples/13_pipeline.sub](examples/13_pipeline.sub)
+
+### 🔢 Fibonacci 数据流
+
+**经典异步教学模型**：展示链状依赖的自动级联解析
+
+```
+f0 ─┐
+    ├→ f2 ─┐
+f1 ─┴───┐  ├→ f4 ─┐
+        └→ f3 ─┤  ├→ f6 ...
+               └→ f5 ─┘
+```
+
+示例：[examples/10_fibonacci.sub](examples/10_fibonacci.sub)
+
+**关键观察**：
+- 所有独立的 async 任务随机调度（空间解耦）
+- 所有依赖型 Future 自动级联解析（时间解耦）
+- 同步代码永远不会被阻塞
+
+---
+
 ## 设计理念 (Design Philosophy)
 
 ### 空间解耦 (Space Decoupling)
@@ -343,6 +418,12 @@ end
 | `05_complex_dependencies.sub` | 复杂依赖模式 + 中间同步代码 | 顺序依赖链 |
 | `06_mixed_patterns.sub` | 混合 async/sync 模式 | 交替执行 |
 | `07_deep_dependency_chain.sub` | 深度依赖链（5层级联） | 级联解析 |
+| `08_impossible_cycle.sub` | DAG 多依赖模式（证明无环） | 多路依赖 |
+| `09_scheduling_constraints.sub` | 调度自由度与依赖约束 | 随机调度 |
+| `10_fibonacci.sub` | 斐波那契数据流图 | 链状依赖 |
+| `11_diamond_dependency.sub` | **Diamond 模式**（经典并发） | Fork-Join |
+| `12_mapreduce.sub` | **MapReduce 模式**（并行计算） | 并行聚合 |
+| `13_pipeline.sub` | **Pipeline 模式**（流式处理） | 级联流水线 |
 
 ### 01_basic.sub
 基础演示 continuation auto-call：

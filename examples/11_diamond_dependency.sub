@@ -1,0 +1,34 @@
+# Diamond Dependency Pattern - Classic Concurrent Algorithm
+# 
+# Dependency Structure (Diamond):
+#           fetch_user
+#            /      \
+#      validate    check_quota
+#            \      /
+#          create_order
+#
+# Real-world scenario:
+# - fetch_user: Get user info from database (async IO)
+# - validate: Check user permissions (async API call)  
+# - check_quota: Check purchase quota (async service)
+# - create_order: Both checks must pass before creating order
+#
+# Key Benefits of Space/Time Decoupling:
+# 1. Space Decoupling: validate and check_quota execute in random order
+# 2. Time Decoupling: create_order automatically waits for both dependencies
+# 3. Auto Dependency Management: No manual Promise.all() or explicit await
+
+# Simulating async operations with placeholder values
+let fetch_user = async (1000) in       # Future 0: User ID from DB
+
+# These two can run in parallel (space decoupling!)
+let validate = fetch_user + 1 in       # Future 1: depends on [0] -> 1001
+let check_quota = fetch_user + 2 in    # Future 2: depends on [0] -> 1002
+
+# This waits for BOTH validate and check_quota (time decoupling!)
+let create_order = validate + check_quota in  # Future 3: depends on [1, 2] -> 2003
+
+# Meanwhile, sync code can execute immediately
+let status = 200 in
+
+create_order  # Returns Future<2003>

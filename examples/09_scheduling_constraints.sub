@@ -1,0 +1,51 @@
+# 09_scheduling_constraints.sub - How dependencies affect scheduling
+#
+# Key Question: Do dependencies constrain random scheduling?
+#
+# Answer: YES and NO!
+#   - Root async tasks: FREE to schedule randomly
+#   - Dependent futures: CONSTRAINED (wait for dependencies)
+#
+# Experiment: Multiple independent async tasks with different dependency patterns
+#
+# Pattern 1: Independent tasks (maximum scheduling freedom)
+#   Future 0, 1, 2 are all independent
+#   → Scheduler can execute in ANY order!
+#
+# Pattern 2: Sequential dependency (constrained)
+#   Future 3 depends on [0]
+#   Future 4 depends on [3]
+#   → Future 3 CANNOT resolve until 0 completes
+#   → Future 4 CANNOT resolve until 3 resolves
+#   → But scheduler still chooses freely among {0, 1, 2}!
+#
+# Pattern 3: Complex DAG (partial constraints)
+#   Future 5 depends on [1, 2]
+#   → Future 5 waits, but 1 and 2 can execute in any order!
+
+# Independent root tasks (all schedulable!)
+let a = async (10) in              # Future 0 ← schedulable
+let b = async (20) in              # Future 1 ← schedulable
+let c = async (30) in              # Future 2 ← schedulable
+
+# Sequential dependency chain
+let d = a + 100 in                 # Future 3: depends on [0] ← NOT schedulable!
+let e = d + 1 in                   # Future 4: depends on [3] ← NOT schedulable!
+
+# Parallel dependency
+let f = b + c in                   # Future 5: depends on [1, 2] ← NOT schedulable!
+
+# Final combination
+let result = e + f in              # Future 6: depends on [4, 5] ← NOT schedulable!
+
+# Return sync value
+42
+
+# Expected behavior:
+# - Scheduler randomly picks from {0, 1, 2}
+# - Once 0 completes → Future 3 auto-resolves → Future 4 auto-resolves
+# - Once 1,2 both complete → Future 5 auto-resolves
+# - Once 4,5 both complete → Future 6 auto-resolves
+# - But the ORDER of 0, 1, 2 is random!
+#
+# Multiple runs will show different execution orders for 0, 1, 2!
