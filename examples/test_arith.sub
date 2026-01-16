@@ -1,0 +1,6 @@
+# Simple test: What type does Future + Future return?
+
+let x = async (1) in
+let y = async (2) in
+let z = x + y in  # What is the type of z?
+z

@@ -1,0 +1,24 @@
+# Parallel Fibonacci with future Keyword
+#
+# Strategy: Function returns future int
+#   - Base case wraps in async -> future int
+#   - Recursive calls return future int
+#   - Operator + creates Dependent Future
+#   - Full parallel execution!
+#
+# Key insight: No need to wrap f(n-1) in async again!
+#   - Base case: async(n) spawns tasks
+#   - Recursive case: f(n-1) already returns future
+#   - Operators auto-track dependencies
+
+let fib =
+  fun f(n : int) : future int is
+    if n < 2 then
+      async (n)  # Spawn async task, returns future int
+    else
+      let left = f (n - 1) in   # Returns future int  
+      let right = f (n - 2) in  # Returns future int
+      left + right              # Creates Dependent Future
+in
+
+fib 6  # Returns Future<8>, fully parallel!

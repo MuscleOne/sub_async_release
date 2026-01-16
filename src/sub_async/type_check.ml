@@ -35,7 +35,7 @@ let rec type_of ctx = function
       let ty2 = type_of ctx e2 in
       (match ty1, ty2 with
        | TInt, TInt -> TInt
-       | TFuture TInt, TInt | TInt, TFuture TInt | TFuture TInt, TFuture TInt -> TInt
+       | TFuture TInt, TInt | TInt, TFuture TInt | TFuture TInt, TFuture TInt -> TFuture TInt
        | _ -> type_error "integers or future integers expected in arithmetic")
   | Bool _ -> TBool
   | Equal (e1, e2)
@@ -90,5 +90,8 @@ and subtype ty1 ty2 =
 	     ts2
        | TFuture ty1', TFuture ty2' ->
 	   subtype ty1' ty2'  (* Futures are covariant *)
+       | ty, TFuture ty' ->
+	   (* Allow automatic lifting: T <: Future<T> *)
+	   subtype ty ty'
        | _, _ -> false
     )

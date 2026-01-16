@@ -1,0 +1,8 @@
+# Test future type keyword
+# Now we can declare functions that return Future!
+
+fun f(n : int) : future int is
+  if n < 2 then
+    n  # int <: future int (auto-lifting)
+  else
+    async (99)  # future int

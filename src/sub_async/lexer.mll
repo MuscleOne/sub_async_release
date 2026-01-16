@@ -16,6 +16,7 @@ rule token = parse
   | "else"          { ELSE }
   | "false"         { FALSE }
   | "fun"           { FUN }
+  | "future"        { TFUTURE }
   | "if"            { IF }
   | "in"            { IN }
   | "is"            { IS }

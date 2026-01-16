@@ -2,7 +2,7 @@
   open Syntax
 %}
 
-%token TINT TBOOL TARROW
+%token TINT TBOOL TARROW TFUTURE
 %token LBRACE RBRACE
 %token COLON COMMA PERIOD
 %token <Syntax.name> VAR
@@ -107,6 +107,7 @@ field:
 ty:
     TBOOL	 	     { TBool }
   | TINT         	     { TInt }
+  | TFUTURE ty               { TFuture $2 }
   | ty TARROW ty             { TArrow ($1, $3) }
   | LBRACE RBRACE            { TRecord [] }
   | LBRACE trecord_list RBRACE { TRecord $2 }

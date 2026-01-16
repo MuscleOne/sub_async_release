@@ -64,10 +64,11 @@ module ContinuationStore = struct
 
   type status =
     | Pending of expr * environment * continuation list
-    | Completed of expr
+    | Completed of expr * int list  (* value + dependencies for GC *)
     | Dependent of dependency          (* 👈 NEW: Dependent Future *)
 
   let table : (int, status) Hashtbl.t = Hashtbl.create 100
+  let ref_counts : (int, int) Hashtbl.t = Hashtbl.create 100  (* 👈 Reference counts *)
   let next_id = ref 0
   let verbose = ref true  (* Control logging *)
 
@@ -75,7 +76,38 @@ module ContinuationStore = struct
   let fresh_id () =
     let id = !next_id in
     incr next_id;
+    Hashtbl.add ref_counts id 1;  (* Initialize with 1 reference *)
     id
+
+  (** Increment reference count *)
+  let incr_ref id =
+    let count = Hashtbl.find_opt ref_counts id |> Option.value ~default:0 in
+    Hashtbl.replace ref_counts id (count + 1);
+    if !verbose then
+      Printf.eprintf "[gc] Future #%d: refcount++ = %d\n%!" id (count + 1)
+
+  (** Decrement reference count and GC if zero *)
+  let rec decr_ref id =
+    match Hashtbl.find_opt ref_counts id with
+    | Some count when count > 1 ->
+        Hashtbl.replace ref_counts id (count - 1);
+        if !verbose then
+          Printf.eprintf "[gc] Future #%d: refcount-- = %d\n%!" id (count - 1)
+    | Some 1 ->
+        (* Last reference, safe to garbage collect *)
+        (* First, release dependencies if this was a Completed Dependent Future *)
+        (match Hashtbl.find_opt table id with
+         | Some (Completed (_, deps)) when deps <> [] ->
+             if !verbose then
+               Printf.eprintf "[gc] Future #%d: releasing %d dependencies\n%!" id (List.length deps);
+             List.iter decr_ref deps
+         | _ -> ());
+        (* Then remove from tables *)
+        Hashtbl.remove table id;
+        Hashtbl.remove ref_counts id;
+        if !verbose then
+          Printf.eprintf "[gc] Future #%d: garbage collected\n%!" id
+    | _ -> ()  (* Already collected or never existed *)
 
   (** Forward declaration of eval_cps *)
   let eval_cps_ref : (environment -> expr -> continuation -> unit) ref = 
@@ -97,7 +129,7 @@ module ContinuationStore = struct
       | [] -> (true, List.rev acc)
       | id :: rest ->
           match Hashtbl.find_opt table id with
-          | Some (Completed v) -> loop (v :: acc) rest
+          | Some (Completed (v, _)) -> loop (v :: acc) rest
           | _ -> (false, [])
     in
     loop [] ids
@@ -110,7 +142,10 @@ module ContinuationStore = struct
         if all_completed then begin
           (* All dependencies ready, compute result *)
           let result = dep.compute values in
-          Hashtbl.replace table id (Completed result);
+          Hashtbl.replace table id (Completed (result, dep.depends_on));
+          
+          (* Release references to dependencies (they're consumed) *)
+          List.iter decr_ref dep.depends_on;
           
           if !verbose then
             Printf.printf "[dependent] Future #%d resolved\n%!" id;
@@ -173,6 +208,9 @@ module ContinuationStore = struct
   and create_dependent_future depends_on compute =
     let id = fresh_id () in
     
+    (* Increment ref count for each dependency *)
+    List.iter incr_ref depends_on;
+    
     (* Cycle detection (should never trigger in well-formed programs) *)
     if has_cycle depends_on id then
       runtime_error ("circular dependency detected for future #" ^ string_of_int id);
@@ -183,7 +221,7 @@ module ContinuationStore = struct
     if all_completed then begin
       (* All dependencies ready, compute immediately *)
       let result = compute values in
-      Hashtbl.add table id (Completed result);
+      Hashtbl.add table id (Completed (result, depends_on));
       if !verbose then
         Printf.printf "[dependent] Future #%d immediately completed\n%!" id;
       id
@@ -211,7 +249,7 @@ module ContinuationStore = struct
   let rec complete id v =
     match Hashtbl.find_opt table id with
     | Some (Pending (_, _, ks)) ->
-        Hashtbl.replace table id (Completed v);
+        Hashtbl.replace table id (Completed (v, []));
         if !verbose && ks <> [] then
           Printf.printf "[complete] Future #%d calling %d waiting continuations\n%!" id (List.length ks);
         List.iter (fun k -> k v) ks  (* 🔥 Auto-call all ks *)
@@ -235,21 +273,27 @@ module ContinuationStore = struct
 
   (** Register a continuation to await a future's result *)
   and await id k =
+    incr_ref id;  (* Increment ref: someone is waiting *)
     match Hashtbl.find_opt table id with
-    | Some (Completed v) ->
+    | Some (Completed (v, _)) ->
         if !verbose then
           Printf.printf "[await] Future #%d already completed, calling continuation immediately\n%!" id;
+        decr_ref id;  (* Decrement ref: no longer waiting *)
         k v  (* Already completed, call k immediately *)
     | Some (Pending (e, env, ks)) ->
         if !verbose then
           Printf.printf "[await] Future #%d pending, registering continuation\n%!" id;
-        Hashtbl.replace table id (Pending (e, env, k::ks))  (* Store k *)
+        (* Wrap k to decrement ref when called *)
+        let k' v = decr_ref id; k v in
+        Hashtbl.replace table id (Pending (e, env, k'::ks))  (* Store k' *)
     | Some (Dependent dep) ->
         (* 👈 NEW: Handle Dependent futures *)
         if !verbose then
           Printf.printf "[await] Future #%d is dependent, registering waiter\n%!" id;
+        (* Wrap k to decrement ref when called *)
+        let k' v = decr_ref id; k v in
         Hashtbl.replace table id (Dependent {
-          dep with waiters = k :: dep.waiters
+          dep with waiters = k' :: dep.waiters
         });
         (* Try to resolve immediately in case dependencies are ready *)
         check_and_resolve_dependent id
@@ -258,6 +302,7 @@ module ContinuationStore = struct
   (** Reset state (for testing) *)
   let reset () =
     Hashtbl.clear table;
+    Hashtbl.clear ref_counts;
     next_id := 0
 end
 
@@ -560,7 +605,9 @@ let eval env e =
         ContinuationStore.await id (fun final_v ->
           result := Some final_v;
           if !ContinuationStore.verbose then
-            Printf.printf "[main] Final result obtained\n%!")
+            Printf.printf "[main] Final result obtained\n%!");
+        (* Release the initial reference after await completes *)
+        ContinuationStore.decr_ref id
     | _ ->
         result := Some v;
         if !ContinuationStore.verbose then

@@ -59,7 +59,7 @@ x + y  (* 阻塞：await x, await y, 返回结果 *)
 
 运算符立即 await，无法并行。
 
-### v2.0 解决方案
+### v2.0 解决方案 + v3.0 递归支持
 
 ```ocaml
 let x = async (2+3) in        (* Future 0 *)
@@ -69,12 +69,22 @@ x + y                         (* 立即返回 Future 2: depends on [0, 1] *)
 
 运算符检测 Future 后创建 Dependent Future。
 
+**v3.0 新增**：`future` 关键字 + 递归函数支持
+
+```ocaml
+fun fib(n : int) : future int is
+  if n < 2 then
+    async (n)  (* int 自动提升为 future int *)
+  else
+    fib(n-1) + fib(n-2)  (* 递归调用返回 future，运算符自动创建依赖 *)
+```
+
 ### 实现
 
 ```ocaml
 type status =
   | Pending of expr * environment * continuation list
-  | Completed of expr
+  | Completed of expr * int list  (* v3.0: + 依赖列表用于 GC *)
   | Dependent of dependency
 
 type dependency = {
@@ -133,6 +143,22 @@ let x = compute() in  (* 阻塞等待 *)
 x + 1
 ```
 
+### 垃圾回收 (v3.0)
+
+**引用计数 + 级联释放**：
+- 每个 Future 追踪引用数（创建、依赖、await 时 +1）
+- refcount 降到 0 时自动 GC
+- GC 时释放所有依赖的引用（级联）
+
+**示例**：
+```
+Future #2 依赖 #0, #1 → refcount(#0)++, refcount(#1)++
+#2 完成 → decr_ref(#0), decr_ref(#1)
+#2 被 GC → 如果 #0, #1 的 refcount=0，也会被 GC
+```
+
+防止内存泄漏，Fibonacci(6) 的 25 个 Futures 全部正确回收。
+
 **核心**：解耦任务发起与结果获取，主程序决定何时需要结果。
 
 ### DAG by Design
@@ -152,10 +178,17 @@ x + 1
 | `01_basic.sub` | 基础用法 |
 | `03_fire_and_forget.sub` | Fire-and-forget 模式 |
 | `04_future_graph.sub` | 非阻塞运算符 |
-| `10_fibonacci.sub` | Fibonacci 数据流 |
+| `10_fibonacci.sub` | Fibonacci 数据流（链式） |
+| `10b_fibonacci_parallel.sub` | Fibonacci 递归（树状，完全并行） |
 | `11_diamond_dependency.sub` | Diamond（Fork-Join） |
 | `12_mapreduce.sub` | MapReduce |
 | `13_pipeline.sub` | Pipeline 流水线 |
+| `test_arith.sub` | 类型系统测试：算术运算符 |
+| `test_type.sub` | 类型系统测试：future 关键字 |
+
+**对比 10 vs 10b**：
+- `10_fibonacci.sub`：手写 let 绑定，链状结构，9 个 Futures
+- `10b_fibonacci_parallel.sub`：递归函数 + `future` 关键字，树状结构，25 个 Futures（完全并行）
 
 详见各文件内注释。
 
