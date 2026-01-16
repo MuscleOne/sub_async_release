@@ -120,6 +120,19 @@ module ContinuationStore = struct
         end
     | _ -> ()
 
+  (** Detect cycles in dependency graph (defensive programming) *)
+  and has_cycle depends_on new_id =
+    let rec check_path visited current_id =
+      if List.mem current_id visited then
+        true  (* Found a cycle! *)
+      else
+        match Hashtbl.find_opt table current_id with
+        | Some (Dependent dep) ->
+            List.exists (check_path (current_id :: visited)) dep.depends_on
+        | _ -> false
+    in
+    List.exists (check_path [new_id]) depends_on
+
   (** Register a dependent future to listen for completion of a dependency *)
   and register_dependent_listener dep_id listener_id =
     match Hashtbl.find_opt table dep_id with
@@ -143,9 +156,26 @@ module ContinuationStore = struct
     
     | None -> runtime_error ("invalid future dependency #" ^ string_of_int dep_id)
 
+  (** Detect cycles in dependency graph (defensive programming) *)
+  let has_cycle depends_on new_id =
+    let rec check_path visited current_id =
+      if List.mem current_id visited then
+        true  (* Found a cycle! *)
+      else
+        match Hashtbl.find_opt table current_id with
+        | Some (Dependent dep) ->
+            List.exists (check_path (current_id :: visited)) dep.depends_on
+        | _ -> false
+    in
+    List.exists (check_path [new_id]) depends_on
+
   (** Create a dependent future that waits for other futures *)
   and create_dependent_future depends_on compute =
     let id = fresh_id () in
+    
+    (* Cycle detection (should never trigger in well-formed programs) *)
+    if has_cycle depends_on id then
+      runtime_error ("circular dependency detected for future #" ^ string_of_int id);
     
     (* Check if dependencies are already completed *)
     let all_completed, values = check_dependencies depends_on in
