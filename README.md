@@ -192,20 +192,23 @@ async (2 + 3)  (* 只说"做什么"，不说"谁来做" *)
 
 ### 时间解耦 (Time Decoupling)
 
-`async` 立即返回，任务完成后自动调用 continuations。
+`async` 立即返回 Future，主程序需要结果时注册 continuation，任务完成后调用已注册的 continuations。
 
-**对比**：
+**流程**：
 ```ocaml
-(* 同步：阻塞等待 *)
-let x = compute() in  (* 等待完成 *)
-x + 1
-
-(* 异步：立即返回 *)
-let x = async (compute()) in  (* 立即返回 Future *)
-x + 1  (* 创建 Dependent Future，非阻塞 *)
+let x = async (compute()) in  (* 1. 立即返回 Future 0 *)
+(* ... 主程序继续执行 ... *)
+x + 1                         (* 2. 使用 x 时注册 continuation *)
+                              (* 3. Future 0 完成后调用 continuation *)
 ```
 
-**核心**：解耦任务发起与结果获取。
+**对比同步**：
+```ocaml
+let x = compute() in  (* 阻塞等待 *)
+x + 1
+```
+
+**核心**：解耦任务发起与结果获取，主程序决定何时需要结果。
 
 ### DAG by Design
 - Let 绑定强制顺序
