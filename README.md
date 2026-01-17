@@ -196,24 +196,41 @@ Future #2 依赖 #0, #1 → refcount(#0)++, refcount(#1)++
 
 ## 实现
 
+**模块结构**（遵循单一职责原则）：
+
+```
+src/sub_async/
+├── scheduler.ml   (46 行)   # 任务调度
+├── future.ml      (216 行)  # Future 状态机 + GC
+├── eval.ml        (275 行)  # 纯求值逻辑
+├── type_check.ml            # 类型检查
+├── syntax.ml                # AST 定义
+└── sub_async.ml             # 主入口
+```
+
 **核心模块**：
 
-- **Scheduler**：非确定性调度
-  - [`schedule`](src/sub_async/eval.ml#L22)：任务入队
-  - [`run_one_random`](src/sub_async/eval.ml#L32-L50)：随机选择任务执行
+- **Scheduler** ([scheduler.ml](src/sub_async/scheduler.ml))：非确定性调度
+  - `schedule`：任务入队
+  - `run_one_random`：随机选择任务执行
+  - `is_empty`：检查队列状态
 
-- **ContinuationStore**：Future 状态管理
-  - [`status` 类型](src/sub_async/eval.ml#L58-L62)：`Pending | Completed | Dependent`
-  - [`create`](src/sub_async/eval.ml#L136-L151)：创建 Future 并调度
-  - [`await`](src/sub_async/eval.ml#L154-L174)：注册 continuation
-  - [`complete`](src/sub_async/eval.ml#L127-L133)：完成时调用 continuations
+- **Future** ([future.ml](src/sub_async/future.ml))：Future 状态管理
+  - `status` 类型：`Pending | Completed | Dependent`
+  - `create`：创建 Future 并调度
+  - `await`：注册 continuation
+  - `complete`：完成时调用 continuations
+  - `create_dependent_future`：创建依赖型 Future
+  - `decr_ref` / `incr_ref`：引用计数 GC
 
-- **Dependent Future 解析**：
-  - [`check_and_resolve_dependent`](src/sub_async/eval.ml#L106-L120)：检查依赖并级联触发
-  - [`create_dependent_future`](src/sub_async/eval.ml#L180-L217)：创建依赖型 Future
+- **Eval** ([eval.ml](src/sub_async/eval.ml))：CPS 风格求值器
+  - `eval_cps`：核心求值函数
+  - `eval`：直接风格包装器
+  - `binary_int_op_*`：Future 感知的运算符
 
-- **类型系统**：
-  - [`Future<T>` 协变 subtyping](src/sub_async/type_check.ml#L99-L101)
+- **类型系统** ([type_check.ml](src/sub_async/type_check.ml))：
+  - `Future<T>` 协变 subtyping
+  - 算术/比较运算符支持 `Future<int>`
 
 ---
 
