@@ -39,7 +39,14 @@ let rec type_of ctx = function
        | _ -> type_error "integers or future integers expected in arithmetic")
   | Bool _ -> TBool
   | Equal (e1, e2)
-  | Less (e1, e2) -> check ctx e1 TInt; check ctx e2 TInt; TBool
+  | Less (e1, e2) ->
+      (* Allow both int and future int in comparisons, matching eval.ml *)
+      let ty1 = type_of ctx e1 in
+      let ty2 = type_of ctx e2 in
+      (match ty1, ty2 with
+       | TInt, TInt -> TBool
+       | TFuture TInt, TInt | TInt, TFuture TInt | TFuture TInt, TFuture TInt -> TFuture TBool
+       | _ -> type_error "integers or future integers expected in comparison")
   | And (e1, e2)
   | Or (e1, e2) -> check ctx e1 TBool; check ctx e2 TBool; TBool
   | Not e -> check ctx e TBool; TBool
