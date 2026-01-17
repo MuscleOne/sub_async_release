@@ -49,34 +49,20 @@ dune exec src/sub_async/sub_async.exe examples/01_basic.sub
 
 ## Future 计算图
 
-### v1.0 的问题
-
-```ocaml
-let x = async (2+3) in
-let y = async (10*10) in
-x + y  (* 阻塞：await x, await y, 返回结果 *)
-```
-
-运算符立即 await，无法并行。
-
-### v2.0 解决方案 + v3.0 递归支持
-
 ```ocaml
 let x = async (2+3) in        (* Future 0 *)
 let y = async (10*10) in      (* Future 1 *)
-x + y                         (* 立即返回 Future 2: depends on [0, 1] *)
+x + y                         (* 立即返回 Future 2，依赖 [0, 1] *)
 ```
 
-运算符检测 Future 后创建 Dependent Future。
+运算符自动检测 Future 操作数并创建 Dependent Future，无需阻塞等待。
 
-**v3.0 新增**：`future` 关键字 + 递归函数支持
+**递归函数**：
 
 ```ocaml
 fun fib(n : int) : future int is
-  if n < 2 then
-    async (n)  (* int 自动提升为 future int *)
-  else
-    fib(n-1) + fib(n-2)  (* 递归调用返回 future，运算符自动创建依赖 *)
+  if n < 2 then async (n)
+  else fib(n-1) + fib(n-2)
 ```
 
 ### 实现
@@ -102,71 +88,13 @@ type dependency = {
 
 ---
 
-## 设计理念
+## 核心机制
 
-### 空间解耦 (Space Decoupling)
+**异步语义**：`async e` 立即返回 Future，任务进入调度队列非确定性执行。
 
-**传统 OOP 方式**：
-```python
-obj.method(arg)      # 必须指定 obj
-thread1.submit(task) # 必须指定 thread1
-executor.execute(f)  # 必须指定 executor
-```
+**依赖传播**：运算符检测 Future 操作数时创建 Dependent Future，完成后自动级联解析。
 
-**Sub_Async 方式**：
-```ocaml
-async (2 + 3)  (* 只说"做什么"，不说"谁来做" *)
-```
-
-`async` 语义就是"丢出去"：
-- 任务进入全局队列
-- Scheduler 随机选择执行
-- 不绑定执行者身份/位置/线程
-
-**核心**：解耦任务定义与执行空间。
-
-### 时间解耦 (Time Decoupling)
-
-`async` 立即返回 Future，主程序需要结果时注册 continuation，任务完成后调用已注册的 continuations。
-
-**流程**：
-```ocaml
-let x = async (compute()) in  (* 1. 立即返回 Future 0 *)
-(* ... 主程序继续执行 ... *)
-x + 1                         (* 2. 使用 x 时注册 continuation *)
-                              (* 3. Future 0 完成后调用 continuation *)
-```
-
-**对比同步**：
-```ocaml
-let x = compute() in  (* 阻塞等待 *)
-x + 1
-```
-
-### 垃圾回收 (v3.0)
-
-**引用计数 + 级联释放**：
-- 每个 Future 追踪引用数（创建、依赖、await 时 +1）
-- refcount 降到 0 时自动 GC
-- GC 时释放所有依赖的引用（级联）
-
-**示例**：
-```
-Future #2 依赖 #0, #1 → refcount(#0)++, refcount(#1)++
-#2 完成 → decr_ref(#0), decr_ref(#1)
-#2 被 GC → 如果 #0, #1 的 refcount=0，也会被 GC
-```
-
-防止内存泄漏，Fibonacci(6) 的 25 个 Futures 全部正确回收。
-
-**核心**：解耦任务发起与结果获取，主程序决定何时需要结果。
-
-### DAG by Design
-- Let 绑定强制顺序
-- 静态作用域阻止循环
-- Future 不可变
-
-理论上不可能产生环。
+**引用计数 GC**：Future 追踪引用数（创建/依赖/await 时 +1），降到 0 时级联释放。
 
 ---
 
@@ -185,12 +113,6 @@ Future #2 依赖 #0, #1 → refcount(#0)++, refcount(#1)++
 | `13_pipeline.sub` | Pipeline 流水线 |
 | `test_arith.sub` | 类型系统测试：算术运算符 |
 | `test_type.sub` | 类型系统测试：future 关键字 |
-
-**对比 10 vs 10b**：
-- `10_fibonacci.sub`：手写 let 绑定，链状结构，9 个 Futures
-- `10b_fibonacci_parallel.sub`：递归函数 + `future` 关键字，树状结构，25 个 Futures（完全并行）
-
-详见各文件内注释。
 
 ---
 
