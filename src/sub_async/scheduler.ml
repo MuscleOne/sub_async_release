@@ -40,7 +40,3 @@ let run_one_random () =
 
 (** Check if queue is empty *)
 let is_empty () = Queue.is_empty queue
-
-(** Reset scheduler state *)
-let reset () =
-  Queue.clear queue

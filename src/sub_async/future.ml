@@ -71,11 +71,6 @@ let extract_int v = match v with
   | Int n -> n
   | _ -> runtime_error "integer expected in dependency resolution"
 
-(** Helper: extract bool from completed future value *)
-let extract_bool v = match v with
-  | Bool b -> b
-  | _ -> runtime_error "boolean expected in dependency resolution"
-
 (** Check if all dependencies are completed and collect their values *)
 let check_dependencies ids =
   let rec loop acc = function
@@ -208,9 +203,3 @@ and await id k =
       });
       check_and_resolve_dependent id
   | None -> runtime_error ("invalid future #" ^ string_of_int id)
-
-(** Reset all state *)
-let reset () =
-  Hashtbl.clear table;
-  Hashtbl.clear ref_counts;
-  next_id := 0
