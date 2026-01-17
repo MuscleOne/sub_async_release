@@ -2,296 +2,10 @@
 
 open Syntax
 
-exception Runtime_error of string
+(** Re-export for compatibility *)
+exception Runtime_error = Future.Runtime_error
 
-(** [runtime_error msg] reports a runtime error by raising [Runtime_error msg] *)
-let runtime_error msg = raise (Runtime_error msg)
-
-(** Continuation type: what to do with a value *)
-type continuation = Syntax.expr -> unit
-
-(** Work queue for trampoline-based scheduling *)
-module Scheduler = struct
-  type task = unit -> unit
-  
-  let queue : task Queue.t = Queue.create ()
-  let verbose = ref true
-  
-  (** Schedule a task for later execution *)
-  let schedule task =
-    Queue.add task queue
-  
-  (** Run all scheduled tasks until queue is empty *)
-  let run_all () =
-    while not (Queue.is_empty queue) do
-      let task = Queue.take queue in
-      task ()
-    done
-  
-  (** Pick a random task from queue and execute it *)
-  let run_one_random () =
-    if not (Queue.is_empty queue) then begin
-      let len = Queue.length queue in
-      let idx = Random.int len in
-      (* Convert to list, pick one, put rest back *)
-      let tasks = Queue.fold (fun acc t -> t::acc) [] queue in
-      Queue.clear queue;
-      let rec rebuild i = function
-        | [] -> ()
-        | t::rest ->
-            if i = idx then begin
-              if !verbose then
-                Printf.printf "[scheduler] Executing randomly selected task\n%!";
-              t ()  (* Execute selected task *)
-            end else
-              Queue.add t queue;
-            rebuild (i+1) rest
-      in
-      rebuild 0 (List.rev tasks)
-    end
-  
-  let reset () =
-    Queue.clear queue
-end
-
-(** ContinuationStore: stores continuations waiting for async computations *)
-module ContinuationStore = struct
-  type dependency = {
-    depends_on: int list;              (* Future IDs this depends on *)
-    compute: expr list -> expr;        (* How to combine results *)
-    waiters: continuation list;        (* Continuations waiting for this *)
-  }
-
-  type status =
-    | Pending of expr * environment * continuation list
-    | Completed of expr * int list  (* value + dependencies for GC *)
-    | Dependent of dependency          (* 👈 NEW: Dependent Future *)
-
-  let table : (int, status) Hashtbl.t = Hashtbl.create 100
-  let ref_counts : (int, int) Hashtbl.t = Hashtbl.create 100  (* 👈 Reference counts *)
-  let next_id = ref 0
-  let verbose = ref true  (* Control logging *)
-
-  (** Generate fresh future ID *)
-  let fresh_id () =
-    let id = !next_id in
-    incr next_id;
-    Hashtbl.add ref_counts id 1;  (* Initialize with 1 reference *)
-    id
-
-  (** Increment reference count *)
-  let incr_ref id =
-    let count = Hashtbl.find_opt ref_counts id |> Option.value ~default:0 in
-    Hashtbl.replace ref_counts id (count + 1);
-    if !verbose then
-      Printf.eprintf "[gc] Future #%d: refcount++ = %d\n%!" id (count + 1)
-
-  (** Decrement reference count and GC if zero *)
-  let rec decr_ref id =
-    match Hashtbl.find_opt ref_counts id with
-    | Some count when count > 1 ->
-        Hashtbl.replace ref_counts id (count - 1);
-        if !verbose then
-          Printf.eprintf "[gc] Future #%d: refcount-- = %d\n%!" id (count - 1)
-    | Some 1 ->
-        (* Last reference, safe to garbage collect *)
-        (* First, release dependencies if this was a Completed Dependent Future *)
-        (match Hashtbl.find_opt table id with
-         | Some (Completed (_, deps)) when deps <> [] ->
-             if !verbose then
-               Printf.eprintf "[gc] Future #%d: releasing %d dependencies\n%!" id (List.length deps);
-             List.iter decr_ref deps
-         | _ -> ());
-        (* Then remove from tables *)
-        Hashtbl.remove table id;
-        Hashtbl.remove ref_counts id;
-        if !verbose then
-          Printf.eprintf "[gc] Future #%d: garbage collected\n%!" id
-    | _ -> ()  (* Already collected or never existed *)
-
-  (** Forward declaration of eval_cps *)
-  let eval_cps_ref : (environment -> expr -> continuation -> unit) ref = 
-    ref (fun _ _ _ -> failwith "eval_cps not initialized")
-
-  (** Helper: extract int from completed future value *)
-  let extract_int v = match v with
-    | Int n -> n
-    | _ -> runtime_error "integer expected in dependency resolution"
-
-  (** Helper: extract bool from completed future value *)
-  let extract_bool v = match v with
-    | Bool b -> b
-    | _ -> runtime_error "boolean expected in dependency resolution"
-
-  (** Check if all dependencies are completed and collect their values *)
-  let check_dependencies ids =
-    let rec loop acc = function
-      | [] -> (true, List.rev acc)
-      | id :: rest ->
-          match Hashtbl.find_opt table id with
-          | Some (Completed (v, _)) -> loop (v :: acc) rest
-          | _ -> (false, [])
-    in
-    loop [] ids
-
-  (** Forward declaration for mutual recursion *)
-  let rec check_and_resolve_dependent id =
-    match Hashtbl.find_opt table id with
-    | Some (Dependent dep) ->
-        let all_completed, values = check_dependencies dep.depends_on in
-        if all_completed then begin
-          (* All dependencies ready, compute result *)
-          let result = dep.compute values in
-          Hashtbl.replace table id (Completed (result, dep.depends_on));
-          
-          (* Release references to dependencies (they're consumed) *)
-          List.iter decr_ref dep.depends_on;
-          
-          if !verbose then
-            Printf.printf "[dependent] Future #%d resolved\n%!" id;
-          
-          (* Notify all waiters *)
-          List.iter (fun k -> k result) dep.waiters
-        end
-    | _ -> ()
-
-  (** Detect cycles in dependency graph (defensive programming) *)
-  and has_cycle depends_on new_id =
-    let rec check_path visited current_id =
-      if List.mem current_id visited then
-        true  (* Found a cycle! *)
-      else
-        match Hashtbl.find_opt table current_id with
-        | Some (Dependent dep) ->
-            List.exists (check_path (current_id :: visited)) dep.depends_on
-        | _ -> false
-    in
-    List.exists (check_path [new_id]) depends_on
-
-  (** Register a dependent future to listen for completion of a dependency *)
-  and register_dependent_listener dep_id listener_id =
-    match Hashtbl.find_opt table dep_id with
-    | Some (Pending (e, env, ks)) ->
-        (* When dep_id completes, check if listener can be resolved *)
-        let notify_k _ =
-          check_and_resolve_dependent listener_id
-        in
-        Hashtbl.replace table dep_id (Pending (e, env, notify_k :: ks))
-    
-    | Some (Completed _) ->
-        (* Dependency already completed, check listener immediately *)
-        check_and_resolve_dependent listener_id
-    
-    | Some (Dependent dep) ->
-        (* Dependency itself is Dependent, add to its waiters *)
-        let notify_k _ = check_and_resolve_dependent listener_id in
-        Hashtbl.replace table dep_id (Dependent {
-          dep with waiters = notify_k :: dep.waiters
-        })
-    
-    | None -> runtime_error ("invalid future dependency #" ^ string_of_int dep_id)
-
-  (** Create a dependent future that waits for other futures *)
-  let create_dependent_future depends_on compute =
-    let id = fresh_id () in
-    
-    (* Increment ref count for each dependency *)
-    List.iter incr_ref depends_on;
-    
-    (* Cycle detection (should never trigger in well-formed programs) *)
-    if has_cycle depends_on id then
-      runtime_error ("circular dependency detected for future #" ^ string_of_int id);
-    
-    (* Check if dependencies are already completed *)
-    let all_completed, values = check_dependencies depends_on in
-    
-    if all_completed then begin
-      (* All dependencies ready, compute immediately *)
-      let result = compute values in
-      Hashtbl.add table id (Completed (result, depends_on));
-      if !verbose then
-        Printf.printf "[dependent] Future #%d immediately completed\n%!" id;
-      id
-    end else begin
-      (* Some dependencies pending, register as Dependent *)
-      let dep = {
-        depends_on = depends_on;
-        compute = compute;
-        waiters = [];
-      } in
-      Hashtbl.add table id (Dependent dep);
-      
-      (* Register listener for each dependency *)
-      List.iter (fun dep_id ->
-        register_dependent_listener dep_id id
-      ) depends_on;
-      
-      if !verbose then
-        Printf.printf "[dependent] Future #%d depends on [%s]\n%!" 
-          id (String.concat "; " (List.map string_of_int depends_on));
-      id
-    end
-
-  (** Complete a future and automatically call all waiting continuations *)
-  let rec complete id v =
-    match Hashtbl.find_opt table id with
-    | Some (Pending (_, _, ks)) ->
-        Hashtbl.replace table id (Completed (v, []));
-        if !verbose && ks <> [] then
-          Printf.printf "[complete] Future #%d calling %d waiting continuations\n%!" id (List.length ks);
-        List.iter (fun k -> k v) ks  (* 🔥 Auto-call all ks *)
-    | _ -> ()
-
-  (** Create a new future and trigger async evaluation *)
-  and create e env =
-    let id = fresh_id () in
-    Hashtbl.add table id (Pending (e, env, []));
-    if !verbose then
-      Printf.printf "[async] Created future #%d, scheduling evaluation\n%!" id;
-    (* Schedule async evaluation instead of running immediately *)
-    Scheduler.schedule (fun () ->
-      if !verbose then
-        Printf.printf "[🎲 running] Future #%d starting evaluation\n%!" id;
-      !eval_cps_ref env e (fun v ->
-        if !verbose then
-          Printf.printf "[✓] Future #%d completed with value\n%!" id;
-        complete id v));
-    id
-
-  (** Register a continuation to await a future's result *)
-  and await id k =
-    incr_ref id;  (* Increment ref: someone is waiting *)
-    match Hashtbl.find_opt table id with
-    | Some (Completed (v, _)) ->
-        if !verbose then
-          Printf.printf "[await] Future #%d already completed, calling continuation immediately\n%!" id;
-        decr_ref id;  (* Decrement ref: no longer waiting *)
-        k v  (* Already completed, call k immediately *)
-    | Some (Pending (e, env, ks)) ->
-        if !verbose then
-          Printf.printf "[await] Future #%d pending, registering continuation\n%!" id;
-        (* Wrap k to decrement ref when called *)
-        let k' v = decr_ref id; k v in
-        Hashtbl.replace table id (Pending (e, env, k'::ks))  (* Store k' *)
-    | Some (Dependent dep) ->
-        (* 👈 NEW: Handle Dependent futures *)
-        if !verbose then
-          Printf.printf "[await] Future #%d is dependent, registering waiter\n%!" id;
-        (* Wrap k to decrement ref when called *)
-        let k' v = decr_ref id; k v in
-        Hashtbl.replace table id (Dependent {
-          dep with waiters = k' :: dep.waiters
-        });
-        (* Try to resolve immediately in case dependencies are ready *)
-        check_and_resolve_dependent id
-    | None -> runtime_error ("invalid future #" ^ string_of_int id)
-
-  (** Reset state (for testing) *)
-  let reset () =
-    Hashtbl.clear table;
-    Hashtbl.clear ref_counts;
-    next_id := 0
-end
+let runtime_error = Future.runtime_error
 
 (** [lookup_value x env] looks up the value of [x] in environment [env]. *)
 let lookup_value x env =
@@ -300,13 +14,13 @@ let lookup_value x env =
 (** Helper: extract int from value, awaiting if it's a future *)
 let rec value_to_int v k = match v with
   | Int n -> k n
-  | Future id -> ContinuationStore.await id (fun v' -> value_to_int v' k)
+  | Future id -> Future.await id (fun v' -> value_to_int v' k)
   | _ -> runtime_error "integer expected"
 
 (** Helper: extract bool from value, awaiting if it's a future *)
 let rec value_to_bool v k = match v with
   | Bool b -> k b
-  | Future id -> ContinuationStore.await id (fun v' -> value_to_bool v' k)
+  | Future id -> Future.await id (fun v' -> value_to_bool v' k)
   | _ -> runtime_error "boolean expected"
 
 (** Maximum evaluation steps to prevent infinite loops *)
@@ -316,16 +30,16 @@ let max_eval_steps = 1000
 let binary_int_op_commutative op_name int_op v1 v2 k =
   match v1, v2 with
   | Future id1, Future id2 ->
-      let new_id = ContinuationStore.create_dependent_future [id1; id2]
+      let new_id = Future.create_dependent_future [id1; id2]
         (fun values -> match values with
-          | [v1; v2] -> Int (int_op (ContinuationStore.extract_int v1) (ContinuationStore.extract_int v2))
+          | [v1; v2] -> Int (int_op (Future.extract_int v1) (Future.extract_int v2))
           | _ -> runtime_error ("dependency mismatch in " ^ op_name))
       in
       k (Future new_id)
   | Future id, Int n | Int n, Future id ->
-      let new_id = ContinuationStore.create_dependent_future [id]
+      let new_id = Future.create_dependent_future [id]
         (fun values -> match values with
-          | [v] -> Int (int_op (ContinuationStore.extract_int v) n)
+          | [v] -> Int (int_op (Future.extract_int v) n)
           | _ -> runtime_error ("dependency mismatch in " ^ op_name))
       in
       k (Future new_id)
@@ -337,23 +51,23 @@ let binary_int_op_commutative op_name int_op v1 v2 k =
 let binary_int_op_ordered op_name int_op v1 v2 k =
   match v1, v2 with
   | Future id1, Future id2 ->
-      let new_id = ContinuationStore.create_dependent_future [id1; id2]
+      let new_id = Future.create_dependent_future [id1; id2]
         (fun values -> match values with
-          | [v1; v2] -> Int (int_op (ContinuationStore.extract_int v1) (ContinuationStore.extract_int v2))
+          | [v1; v2] -> Int (int_op (Future.extract_int v1) (Future.extract_int v2))
           | _ -> runtime_error ("dependency mismatch in " ^ op_name))
       in
       k (Future new_id)
   | Future id, Int n ->
-      let new_id = ContinuationStore.create_dependent_future [id]
+      let new_id = Future.create_dependent_future [id]
         (fun values -> match values with
-          | [v] -> Int (int_op (ContinuationStore.extract_int v) n)
+          | [v] -> Int (int_op (Future.extract_int v) n)
           | _ -> runtime_error ("dependency mismatch in " ^ op_name))
       in
       k (Future new_id)
   | Int n, Future id ->
-      let new_id = ContinuationStore.create_dependent_future [id]
+      let new_id = Future.create_dependent_future [id]
         (fun values -> match values with
-          | [v] -> Int (int_op n (ContinuationStore.extract_int v))
+          | [v] -> Int (int_op n (Future.extract_int v))
           | _ -> runtime_error ("dependency mismatch in " ^ op_name))
       in
       k (Future new_id)
@@ -365,23 +79,23 @@ let binary_int_op_ordered op_name int_op v1 v2 k =
 let binary_cmp_op op_name cmp_op v1 v2 k =
   match v1, v2 with
   | Future id1, Future id2 ->
-      let new_id = ContinuationStore.create_dependent_future [id1; id2]
+      let new_id = Future.create_dependent_future [id1; id2]
         (fun values -> match values with
-          | [v1; v2] -> Bool (cmp_op (ContinuationStore.extract_int v1) (ContinuationStore.extract_int v2))
+          | [v1; v2] -> Bool (cmp_op (Future.extract_int v1) (Future.extract_int v2))
           | _ -> runtime_error ("dependency mismatch in " ^ op_name))
       in
       k (Future new_id)
   | Future id, Int n ->
-      let new_id = ContinuationStore.create_dependent_future [id]
+      let new_id = Future.create_dependent_future [id]
         (fun values -> match values with
-          | [v] -> Bool (cmp_op (ContinuationStore.extract_int v) n)
+          | [v] -> Bool (cmp_op (Future.extract_int v) n)
           | _ -> runtime_error ("dependency mismatch in " ^ op_name))
       in
       k (Future new_id)
   | Int n, Future id ->
-      let new_id = ContinuationStore.create_dependent_future [id]
+      let new_id = Future.create_dependent_future [id]
         (fun values -> match values with
-          | [v] -> Bool (cmp_op n (ContinuationStore.extract_int v))
+          | [v] -> Bool (cmp_op n (Future.extract_int v))
           | _ -> runtime_error ("dependency mismatch in " ^ op_name))
       in
       k (Future new_id)
@@ -392,11 +106,7 @@ let binary_cmp_op op_name cmp_op v1 v2 k =
 (** [eval_cps env e k] evaluates expression [e] in environment [env],
     then calls continuation [k] with the result. *)
 let rec eval_cps env e k = match e with
-  | Var x ->
-      let v = lookup_value x env in
-      (* 👇 Changed: Don't auto-await! Let Future values propagate *)
-      k v
-
+  | Var x -> k (lookup_value x env)
   | Int _ as e -> k e
   | Bool _ as e -> k e
 
@@ -420,42 +130,38 @@ let rec eval_cps env e k = match e with
         eval_cps env e2 (fun v2 ->
           match v1, v2 with
           | Future id1, Future id2 ->
-              let new_id = ContinuationStore.create_dependent_future [id1; id2]
+              let new_id = Future.create_dependent_future [id1; id2]
                 (fun values -> match values with
                   | [v1; v2] -> 
-                      let n1 = ContinuationStore.extract_int v1 in
-                      let n2 = ContinuationStore.extract_int v2 in
+                      let n1 = Future.extract_int v1 in
+                      let n2 = Future.extract_int v2 in
                       if n2 = 0 then runtime_error "division by zero"
                       else Int (n1 / n2)
                   | _ -> runtime_error "dependency mismatch in Divide")
               in
               k (Future new_id)
-          
           | Future id, Int n ->
-              let new_id = ContinuationStore.create_dependent_future [id]
+              let new_id = Future.create_dependent_future [id]
                 (fun values -> match values with
                   | [v] -> 
                       if n = 0 then runtime_error "division by zero"
-                      else Int (ContinuationStore.extract_int v / n)
+                      else Int (Future.extract_int v / n)
                   | _ -> runtime_error "dependency mismatch in Divide")
               in
               k (Future new_id)
-          
           | Int n, Future id ->
-              let new_id = ContinuationStore.create_dependent_future [id]
+              let new_id = Future.create_dependent_future [id]
                 (fun values -> match values with
                   | [v] -> 
-                      let divisor = ContinuationStore.extract_int v in
+                      let divisor = Future.extract_int v in
                       if divisor = 0 then runtime_error "division by zero"
                       else Int (n / divisor)
                   | _ -> runtime_error "dependency mismatch in Divide")
               in
               k (Future new_id)
-          
           | Int n1, Int n2 ->
               if n2 = 0 then runtime_error "division by zero"
               else k (Int (n1 / n2))
-          
           | _ -> runtime_error "integers expected in Divide"))
 
   | Equal (e1, e2) ->
@@ -501,7 +207,6 @@ let rec eval_cps env e k = match e with
 
   | Let (x, e1, e2) ->
       eval_cps env e1 (fun v1 ->
-        (* No scheduling here - just continue *)
         eval_cps ((x, v1)::env) e2 k)
 
   | App (e1, e2) ->
@@ -531,39 +236,35 @@ let rec eval_cps env e k = match e with
         | _ -> runtime_error "record expected")
 
   | Async e' ->
-      (* Create future and immediately continue, don't wait *)
-      let id = ContinuationStore.create e' env in
+      let id = Future.create e' env in
       k (Future id)
 
   | Future _ as e -> k e
 
-(* Initialize the reference to eval_cps *)
-let () = ContinuationStore.eval_cps_ref := eval_cps
+(* Initialize the reference to eval_cps in Future module *)
+let () = Future.eval_cps_ref := eval_cps
 
 (** Wrapper for direct-style evaluation (for compatibility) *)
 let eval env e =
   let result = ref None in
   let final_k v =
-    (* If result is a future, await it before storing *)
     match v with
     | Future id ->
-        if !ContinuationStore.verbose then
+        if !Future.verbose then
           Printf.printf "[main] Result is Future #%d, awaiting...\n%!" id;
-        ContinuationStore.await id (fun final_v ->
+        Future.await id (fun final_v ->
           result := Some final_v;
-          if !ContinuationStore.verbose then
+          if !Future.verbose then
             Printf.printf "[main] Final result obtained\n%!");
-        (* Release the initial reference after await completes *)
-        ContinuationStore.decr_ref id
+        Future.decr_ref id
     | _ ->
         result := Some v;
-        if !ContinuationStore.verbose then
+        if !Future.verbose then
           Printf.printf "[main] Final result obtained\n%!"
   in
   eval_cps env e final_k;
-  (* Run scheduled tasks with random selection *)
   let steps_remaining = ref max_eval_steps in
-  while !steps_remaining > 0 && not (Queue.is_empty Scheduler.queue) do
+  while !steps_remaining > 0 && not (Scheduler.is_empty ()) do
     Scheduler.run_one_random ();
     decr steps_remaining
   done;
