@@ -191,21 +191,8 @@ module ContinuationStore = struct
     
     | None -> runtime_error ("invalid future dependency #" ^ string_of_int dep_id)
 
-  (** Detect cycles in dependency graph (defensive programming) *)
-  let has_cycle depends_on new_id =
-    let rec check_path visited current_id =
-      if List.mem current_id visited then
-        true  (* Found a cycle! *)
-      else
-        match Hashtbl.find_opt table current_id with
-        | Some (Dependent dep) ->
-            List.exists (check_path (current_id :: visited)) dep.depends_on
-        | _ -> false
-    in
-    List.exists (check_path [new_id]) depends_on
-
   (** Create a dependent future that waits for other futures *)
-  and create_dependent_future depends_on compute =
+  let create_dependent_future depends_on compute =
     let id = fresh_id () in
     
     (* Increment ref count for each dependency *)
@@ -322,6 +309,86 @@ let rec value_to_bool v k = match v with
   | Future id -> ContinuationStore.await id (fun v' -> value_to_bool v' k)
   | _ -> runtime_error "boolean expected"
 
+(** Maximum evaluation steps to prevent infinite loops *)
+let max_eval_steps = 1000
+
+(** Helper: create binary int operation with Future support (commutative) *)
+let binary_int_op_commutative op_name int_op v1 v2 k =
+  match v1, v2 with
+  | Future id1, Future id2 ->
+      let new_id = ContinuationStore.create_dependent_future [id1; id2]
+        (fun values -> match values with
+          | [v1; v2] -> Int (int_op (ContinuationStore.extract_int v1) (ContinuationStore.extract_int v2))
+          | _ -> runtime_error ("dependency mismatch in " ^ op_name))
+      in
+      k (Future new_id)
+  | Future id, Int n | Int n, Future id ->
+      let new_id = ContinuationStore.create_dependent_future [id]
+        (fun values -> match values with
+          | [v] -> Int (int_op (ContinuationStore.extract_int v) n)
+          | _ -> runtime_error ("dependency mismatch in " ^ op_name))
+      in
+      k (Future new_id)
+  | Int n1, Int n2 ->
+      k (Int (int_op n1 n2))
+  | _ -> runtime_error ("integers expected in " ^ op_name)
+
+(** Helper: create binary int operation with Future support (non-commutative) *)
+let binary_int_op_ordered op_name int_op v1 v2 k =
+  match v1, v2 with
+  | Future id1, Future id2 ->
+      let new_id = ContinuationStore.create_dependent_future [id1; id2]
+        (fun values -> match values with
+          | [v1; v2] -> Int (int_op (ContinuationStore.extract_int v1) (ContinuationStore.extract_int v2))
+          | _ -> runtime_error ("dependency mismatch in " ^ op_name))
+      in
+      k (Future new_id)
+  | Future id, Int n ->
+      let new_id = ContinuationStore.create_dependent_future [id]
+        (fun values -> match values with
+          | [v] -> Int (int_op (ContinuationStore.extract_int v) n)
+          | _ -> runtime_error ("dependency mismatch in " ^ op_name))
+      in
+      k (Future new_id)
+  | Int n, Future id ->
+      let new_id = ContinuationStore.create_dependent_future [id]
+        (fun values -> match values with
+          | [v] -> Int (int_op n (ContinuationStore.extract_int v))
+          | _ -> runtime_error ("dependency mismatch in " ^ op_name))
+      in
+      k (Future new_id)
+  | Int n1, Int n2 ->
+      k (Int (int_op n1 n2))
+  | _ -> runtime_error ("integers expected in " ^ op_name)
+
+(** Helper: create comparison operation with Future support *)
+let binary_cmp_op op_name cmp_op v1 v2 k =
+  match v1, v2 with
+  | Future id1, Future id2 ->
+      let new_id = ContinuationStore.create_dependent_future [id1; id2]
+        (fun values -> match values with
+          | [v1; v2] -> Bool (cmp_op (ContinuationStore.extract_int v1) (ContinuationStore.extract_int v2))
+          | _ -> runtime_error ("dependency mismatch in " ^ op_name))
+      in
+      k (Future new_id)
+  | Future id, Int n ->
+      let new_id = ContinuationStore.create_dependent_future [id]
+        (fun values -> match values with
+          | [v] -> Bool (cmp_op (ContinuationStore.extract_int v) n)
+          | _ -> runtime_error ("dependency mismatch in " ^ op_name))
+      in
+      k (Future new_id)
+  | Int n, Future id ->
+      let new_id = ContinuationStore.create_dependent_future [id]
+        (fun values -> match values with
+          | [v] -> Bool (cmp_op n (ContinuationStore.extract_int v))
+          | _ -> runtime_error ("dependency mismatch in " ^ op_name))
+      in
+      k (Future new_id)
+  | Int n1, Int n2 ->
+      k (Bool (cmp_op n1 n2))
+  | _ -> runtime_error ("integers expected in " ^ op_name)
+
 (** [eval_cps env e k] evaluates expression [e] in environment [env],
     then calls continuation [k] with the result. *)
 let rec eval_cps env e k = match e with
@@ -336,89 +403,17 @@ let rec eval_cps env e k = match e with
   | Plus (e1, e2) ->
       eval_cps env e1 (fun v1 ->
         eval_cps env e2 (fun v2 ->
-          (* 👇 Future computation graph: check if operands are futures *)
-          match v1, v2 with
-          | Future id1, Future id2 ->
-              (* Both are futures: create dependent future *)
-              let new_id = ContinuationStore.create_dependent_future [id1; id2]
-                (fun values -> match values with
-                  | [v1; v2] -> Int (ContinuationStore.extract_int v1 + ContinuationStore.extract_int v2)
-                  | _ -> runtime_error "dependency mismatch in Plus")
-              in
-              k (Future new_id)  (* 👈 Return immediately! *)
-          
-          | Future id, Int n | Int n, Future id ->
-              (* One is future, one is value *)
-              let new_id = ContinuationStore.create_dependent_future [id]
-                (fun values -> match values with
-                  | [v] -> Int (ContinuationStore.extract_int v + n)
-                  | _ -> runtime_error "dependency mismatch in Plus")
-              in
-              k (Future new_id)
-          
-          | Int n1, Int n2 ->
-              (* Both are values: compute directly *)
-              k (Int (n1 + n2))
-          
-          | _ -> runtime_error "integers expected in Plus"))
+          binary_int_op_commutative "Plus" ( + ) v1 v2 k))
 
   | Minus (e1, e2) ->
       eval_cps env e1 (fun v1 ->
         eval_cps env e2 (fun v2 ->
-          match v1, v2 with
-          | Future id1, Future id2 ->
-              let new_id = ContinuationStore.create_dependent_future [id1; id2]
-                (fun values -> match values with
-                  | [v1; v2] -> Int (ContinuationStore.extract_int v1 - ContinuationStore.extract_int v2)
-                  | _ -> runtime_error "dependency mismatch in Minus")
-              in
-              k (Future new_id)
-          
-          | Future id, Int n ->
-              let new_id = ContinuationStore.create_dependent_future [id]
-                (fun values -> match values with
-                  | [v] -> Int (ContinuationStore.extract_int v - n)
-                  | _ -> runtime_error "dependency mismatch in Minus")
-              in
-              k (Future new_id)
-          
-          | Int n, Future id ->
-              let new_id = ContinuationStore.create_dependent_future [id]
-                (fun values -> match values with
-                  | [v] -> Int (n - ContinuationStore.extract_int v)
-                  | _ -> runtime_error "dependency mismatch in Minus")
-              in
-              k (Future new_id)
-          
-          | Int n1, Int n2 ->
-              k (Int (n1 - n2))
-          
-          | _ -> runtime_error "integers expected in Minus"))
+          binary_int_op_ordered "Minus" ( - ) v1 v2 k))
 
   | Times (e1, e2) ->
       eval_cps env e1 (fun v1 ->
         eval_cps env e2 (fun v2 ->
-          match v1, v2 with
-          | Future id1, Future id2 ->
-              let new_id = ContinuationStore.create_dependent_future [id1; id2]
-                (fun values -> match values with
-                  | [v1; v2] -> Int (ContinuationStore.extract_int v1 * ContinuationStore.extract_int v2)
-                  | _ -> runtime_error "dependency mismatch in Times")
-              in
-              k (Future new_id)
-          
-          | Future id, Int n | Int n, Future id ->
-              let new_id = ContinuationStore.create_dependent_future [id]
-                (fun values -> match values with
-                  | [v] -> Int (ContinuationStore.extract_int v * n)
-                  | _ -> runtime_error "dependency mismatch in Times")
-              in
-              k (Future new_id)
-          
-          | Int n1, Int n2 ->
-              k (Int (n1 * n2))
-          
-          | _ -> runtime_error "integers expected in Times"))
+          binary_int_op_commutative "Times" ( * ) v1 v2 k))
 
   | Divide (e1, e2) ->
       eval_cps env e1 (fun v1 ->
@@ -466,60 +461,12 @@ let rec eval_cps env e k = match e with
   | Equal (e1, e2) ->
       eval_cps env e1 (fun v1 ->
         eval_cps env e2 (fun v2 ->
-          match v1, v2 with
-          | Future id1, Future id2 ->
-              let new_id = ContinuationStore.create_dependent_future [id1; id2]
-                (fun values -> match values with
-                  | [v1; v2] -> Bool (ContinuationStore.extract_int v1 = ContinuationStore.extract_int v2)
-                  | _ -> runtime_error "dependency mismatch in Equal")
-              in
-              k (Future new_id)
-          
-          | Future id, Int n | Int n, Future id ->
-              let new_id = ContinuationStore.create_dependent_future [id]
-                (fun values -> match values with
-                  | [v] -> Bool (ContinuationStore.extract_int v = n)
-                  | _ -> runtime_error "dependency mismatch in Equal")
-              in
-              k (Future new_id)
-          
-          | Int n1, Int n2 ->
-              k (Bool (n1 = n2))
-          
-          | _ -> runtime_error "integers expected in Equal"))
+          binary_cmp_op "Equal" ( = ) v1 v2 k))
 
   | Less (e1, e2) ->
       eval_cps env e1 (fun v1 ->
         eval_cps env e2 (fun v2 ->
-          match v1, v2 with
-          | Future id1, Future id2 ->
-              let new_id = ContinuationStore.create_dependent_future [id1; id2]
-                (fun values -> match values with
-                  | [v1; v2] -> Bool (ContinuationStore.extract_int v1 < ContinuationStore.extract_int v2)
-                  | _ -> runtime_error "dependency mismatch in Less")
-              in
-              k (Future new_id)
-          
-          | Future id, Int n ->
-              let new_id = ContinuationStore.create_dependent_future [id]
-                (fun values -> match values with
-                  | [v] -> Bool (ContinuationStore.extract_int v < n)
-                  | _ -> runtime_error "dependency mismatch in Less")
-              in
-              k (Future new_id)
-          
-          | Int n, Future id ->
-              let new_id = ContinuationStore.create_dependent_future [id]
-                (fun values -> match values with
-                  | [v] -> Bool (n < ContinuationStore.extract_int v)
-                  | _ -> runtime_error "dependency mismatch in Less")
-              in
-              k (Future new_id)
-          
-          | Int n1, Int n2 ->
-              k (Bool (n1 < n2))
-          
-          | _ -> runtime_error "integers expected in Less"))
+          binary_cmp_op "Less" ( < ) v1 v2 k))
 
   | And (e1, e2) ->
       eval_cps env e1 (fun v1 ->
@@ -615,12 +562,12 @@ let eval env e =
   in
   eval_cps env e final_k;
   (* Run scheduled tasks with random selection *)
-  let max_steps = ref 1000 in
-  while !max_steps > 0 && not (Queue.is_empty Scheduler.queue) do
+  let steps_remaining = ref max_eval_steps in
+  while !steps_remaining > 0 && not (Queue.is_empty Scheduler.queue) do
     Scheduler.run_one_random ();
-    decr max_steps
+    decr steps_remaining
   done;
-  if !max_steps = 0 then
+  if !steps_remaining = 0 then
     runtime_error "evaluation exceeded maximum steps";
   match !result with
   | Some v -> v
