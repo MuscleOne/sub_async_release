@@ -99,6 +99,45 @@
 
 ---
 
+### Core Calculus 设计草案
+
+参考 Aeff 论文和形式化的做法，我们的 Core Sub_Async 演算应该聚焦 Future 机制：
+
+**值 (Values):**
+```
+V ::= n                    (整数字面量)
+    | x                    (变量)
+    | fut_id               (Future 引用)
+```
+
+**表达式 (Expressions):**
+```
+e ::= V                    (值)
+    | e₁ ⊕ e₂             (二元运算)
+    | async e              (异步块)
+    | let x = e₁ in e₂    (let 绑定)
+```
+
+**运算符:**
+```
+⊕ ::= + | * | - | <       (统一的二元运算，区分具体操作)
+```
+
+**配置 (Configuration):**
+```
+Σ = ⟨e, ρ, Φ, Q⟩
+  e — 当前表达式
+  ρ — 环境 (x → V)
+  Φ — Future table (fut_id → FutureStatus)
+  Q — Task queue (待执行的 fut_id 集合)
+
+FutureStatus ::= Pending(e, ρ)
+               | Completed(V)
+               | Dependent([fut_id], ⊕)
+```
+
+---
+
 ### 待决定的设计问题
 
 #### D1: Configuration 结构
@@ -155,22 +194,58 @@
 
 ## Phase 3: Agda 形式化（计划中）
 
+### 验证范围决策
+
+参考 Aeff 的做法，采用**渐进式验证策略**：
+
+#### Phase 3a: Core Calculus 验证（必做，Week 5-8）
+
+**语法（极简版）：**
+```
+值 V ::= n | x | fut_id
+表达式 e ::= V | e₁ ⊕ e₂ | async e | let x = e₁ in e₂
+运算符 ⊕ ::= + | * | - | <  （抽象的二元运算）
+```
+
+**简化掉的特性：**
+- ❌ 布尔类型和 `if` 表达式（已知有 short-circuit 问题）
+- ❌ 函数 `Fun`/`Apply`（用 `let` 绑定足够展示环境捕获）
+- ❌ 比较运算返回 `Future<bool>`（类型系统简化）
+
+**保留的核心机制：**
+- ✅ `async e` → 创建 Future
+- ✅ `fut_id ⊕ fut_id` → Operator polymorphism（自动提升）
+- ✅ Dependency graph 构建
+- ✅ Non-deterministic scheduling
+
+**验证目标：**
+1. **Progress:** Well-typed 的程序不会 stuck
+2. **Preservation:** Types 在 reduction 中保持不变
+3. **Future Resolution:** 所有 Dependent Futures 最终都会 resolve（在 fair scheduling 下）
+
+---
+
+#### Phase 3b: 扩展验证（如果时间允许）
+
+按优先级逐步添加：
+1. **条件分支：** 添加 `if` 表达式和布尔类型
+2. **函数：** 添加 `Fun`/`Apply`，验证闭包和环境语义
+3. **完整运算符：** 区分不同算术运算的具体语义
+
+---
+
 ### 目录结构
 ```
 formalization/
 ├── agda/
-│   ├── Syntax.agda
-│   ├── Semantics.agda
-│   ├── TypeSystem.agda
-│   ├── Progress.agda
-│   └── Preservation.agda
+│   ├── Syntax.agda          -- Core calculus 语法
+│   ├── Semantics.agda       -- Small-step rules
+│   ├── TypeSystem.agda      -- Typing judgments
+│   ├── Progress.agda        -- Progress 定理
+│   ├── Preservation.agda    -- Preservation 定理
+│   └── FutureResolution.agda -- Future 最终 resolve 的证明
 └── README.md
 ```
-
-### 验证目标
-1. **Progress:** Well-typed 的程序不会 stuck
-2. **Preservation:** Types 在 reduction 中保持不变
-3. **Future Safety:** 所有 Dependent Futures 最终都会 resolve（在 fair scheduling 下）
 
 ---
 
@@ -179,18 +254,26 @@ formalization/
 | 周次 | 任务 |
 |------|------|
 | Week 1-2 | 分析 Aeff implementation + 论文 |
-| Week 3 | 在纸上草拟 small-step rules |
-| Week 4 | 与导师讨论 |
-| Week 5-6 | 开始 Agda 形式化 |
+| Week 3 | 在纸上草拟 Core Calculus 的 small-step rules |
+| Week 4 | 与导师讨论（确认验证范围和策略）|
+| Week 5-6 | Agda 形式化：Syntax + Semantics + TypeSystem |
 | Week 7-8 | 证明 Progress + Preservation |
+| Week 9+ | （可选）扩展验证：添加 if/Fun 等特性 |
 
 ---
 
 ## 给导师的问题
 
 1. **Non-determinism:** Aeff 使用 labeled transitions，我们也应该这样吗？
+
 2. **范围：** 应该形式化整个语言还是 core calculus？
+   - **Aeff 的做法：** 形式化核心演算（去掉 Tuple、Variant、模式匹配等）
+   - **建议：** 先形式化 Core Sub_Async（保留 `async`、`Future`、operator polymorphism 核心机制）
+   - **原因：** 专注于 Future 机制的 soundness，避免陷入语言特性细节
+
 3. **Short-circuit:** 在形式化之前要不要先解决 boolean operator 的问题？
+   - **建议：** Core calculus 中可以直接去掉布尔运算，用抽象的二元运算 `⊕` 代替
+
 4. **参考文献：** 还有其他关于 Future/Promise semantics 的论文要读吗？
 
 ---
