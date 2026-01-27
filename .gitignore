@@ -11,6 +11,9 @@ external_resources/
 # Personal logs (not for public repo)
 daydaylog.md
 
+# Artifacts (intermediate analysis, AI conversation outputs)
+artifacts/
+
 # VS Code Copilot configuration (private)
 .github/
 
