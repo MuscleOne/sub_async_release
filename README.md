@@ -92,7 +92,16 @@ type dependency = {
 
 **异步语义**：`async e` 立即返回 Future，任务进入调度队列非确定性执行。
 
-**依赖传播**：运算符检测 Future 操作数时创建 Dependent Future，完成后自动级联解析。
+**Pull-based 取值**：主程序评估到需要具体值时（如 `if` 条件），主动查询 Future table。后台任务完成仅改变状态，不主动通知。
+
+```ocaml
+(* 主程序在需要 int 值时，主动 await *)
+let rec value_to_int v k = match v with
+  | Int n -> k n
+  | Future id -> Future.await id (fun v' -> value_to_int v' k)
+```
+
+**依赖传播**：运算符检测 Future 操作数时创建 Dependent Future，主程序 await 时触发解析链。
 
 **引用计数 GC**：Future 追踪引用数（创建/依赖/await 时 +1），降到 0 时级联释放。
 

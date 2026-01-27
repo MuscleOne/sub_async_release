@@ -15,7 +15,7 @@ header-includes:
 1. **Language Motivation**: Space/Time Decoupling (WeChat Analogy)
 2. **Formalization Motivation**: Externalize runtime state
 3. **Configuration**: $\langle e, s \rangle$ where $s = (\rho, \Phi, Q)$
-4. **5 Core Rules**: E-ASYNC, E-SCHEDULE, E-COMPLETE, E-LIFT-OP, E-RESOLVE
+4. **5 Core Rules**: E-ASYNC, E-SCHEDULE, E-COMPLETE, E-LIFT-OP, E-AWAIT
 5. **Comparison with Aeff**
 
 ---
@@ -26,9 +26,9 @@ header-includes:
 |------|---------------|-------------|
 | **E-ASYNC** | Post task to group | Space decoupling |
 | **E-SCHEDULE** | Whoever grabs it | Non-determinism |
-| **E-COMPLETE** | Auto-notify on done | Continuation-based notify |
-| **E-LIFT-OP** | Register dependency | No await, build graph |
-| **E-RESOLVE** | Cascade trigger | Auto-propagation |
+| **E-COMPLETE** | Task done, status change | State transition only |
+| **E-LIFT-OP** | "When ready, compute" | Build graph, not block |
+| **E-AWAIT** | "Is it done yet?" | Main pulls when needed |
 
 **Core innovation**: Operators detect Futures $\to$ implicit parallelism
 
@@ -196,36 +196,40 @@ let run_one_random () =
 
 $$\frac{s.\Phi(id) = \text{Pending}(v', \rho', ks) \quad (v' \text{ is a value})}{\langle e, s \rangle \to \langle e, s[id \mapsto \text{Completed}(v')] \ominus id \rangle}$$
 
-$+ \forall k \in ks.\ k(v')$ \hfill (E-COMPLETE)
+(E-COMPLETE)
 
-**Intuition**: Task completes, notify all waiters.
+**Intuition**: Task finishes, status changes to Completed. **No active notification** — waiters poll later.
 
 ---
 
 ## E-COMPLETE: WeChat Analogy
 
 ```
-[Alice]: "Done! Result is 1000"
-         (auto-notify everyone waiting for this result)
+[Alice]: (finishes task, updates status)
+         "Task #1 is now DONE. Result = 1000"
+         (just changes her status, doesn't ping anyone)
 
-[Bob]: (receives notification) "Great, I can continue"
-[Carol]: (receives notification) "Great, me too"
+[Later, when Bob needs the result...]
+[Bob]: "@Alice, is #1 done?" -> "Yes, here's 1000"
 ```
 
-**Key**: Completion auto-notifies. No polling needed.
+**Key**: Completion is just state change. **Consumers poll when they need it**.
 
 ---
 
 ## E-COMPLETE: OCaml Code
 
 ```ocaml
-(* future.ml *)
-let rec complete id v =
-  match Hashtbl.find_opt table id with
-  | Some (Pending (_, _, ks)) ->
-      Hashtbl.replace table id (Completed (v, []));  (* Phi[id |-> Completed] *)
-      List.iter (fun k -> k v) ks                    (* Notify waiters *)
-  | _ -> ()
+(* future.ml - task completion *)
+let complete id v =
+  Hashtbl.replace table id (Completed (v, deps))  (* Just state change *)
+  (* No active notification! Waiters check via await *)
+
+(* eval.ml - main program polls when needed *)
+let rec value_to_int v k = match v with
+  | Int n -> k n
+  | Future id -> Future.await id (fun v' -> value_to_int v' k)
+      (* Main program ACTIVELY queries: "is it done?" *)
 ```
 
 ---
@@ -276,51 +280,50 @@ let binary_op op v1 v2 k = match v1, v2 with
 
 ---
 
-## Rule 5: E-RESOLVE
+## Rule 5: E-AWAIT (Main Program Queries)
 
 **Formal**:
 
-$$\frac{s.\Phi(id) = \text{Dependent}(deps, f, ks) \quad \forall id' \in deps.\ s.\Phi(id') = \text{Completed}(v_{id'})}{\langle e, s \rangle \to \langle e, s[id \mapsto \text{Completed}(f(values))] \rangle}$$
+$$\frac{s.\Phi(id) = \text{Completed}(v)}{\langle \texttt{await}(id), s \rangle \to \langle v, s \rangle}$$ (E-AWAIT-READY)
 
-$+ \forall k \in ks.\ k(f(values))$ \hfill (E-RESOLVE)
+$$\frac{s.\Phi(id) = \text{Pending/Dependent}}{\langle \texttt{await}(id), s \rangle \to \langle \texttt{await}(id), s \rangle}$$ (E-AWAIT-WAIT)
 
-**Intuition**: All dependencies complete $\to$ auto-resolve $\to$ cascade notify.
-
----
-
-## E-RESOLVE: WeChat Analogy
-
-```
-[System]: Task #3 depends on [#1, #2]
-
-[Alice completes #1]: -> check #3, #2 not done, wait
-[Bob completes #2]:   -> check #3, #1 already done (yes!)
-                      -> all deps complete!
-                      -> auto-compute: 110 + 120 = 230
-                      -> notify all waiters of #3
-
-Cascade: once #3 completes, may trigger #4, #5...
-```
-
-**Key**: Avalanche-style auto-resolution.
+**Intuition**: Main program **actively queries** when it needs the value. If ready, get it; if not, keep polling.
 
 ---
 
-## E-RESOLVE: OCaml Code
+## E-AWAIT: WeChat Analogy
+
+```
+[Main program evaluating: if (x > 0) then ... ]
+
+[Main]: "I need the actual value of x now"
+        "@ FutureTable: is #1 done?"
+
+[If Completed]: "Yes, here's 100" -> continue with if(100 > 0)
+[If Pending]:   "Not yet" -> run scheduler, ask again later
+```
+
+**Key**: Main program **pulls** when it needs concrete value (e.g., `if` condition).
+
+---
+
+## E-AWAIT: OCaml Code
 
 ```ocaml
 (* future.ml *)
-let rec check_and_resolve_dependent id =
+let await id k =
   match Hashtbl.find_opt table id with
+  | Some (Completed (v, _)) -> k v    (* Ready! Return value *)
+  | Some (Pending (_, _, ks)) ->
+      (* Not ready: register k, keep scheduling *)
+      Hashtbl.replace table id (Pending (e, env, k::ks))
   | Some (Dependent dep) ->
-      let all_completed, values = check_dependencies dep.depends_on in
-      if all_completed then begin
-        let result = dep.compute values in           (* f(values) *)
-        Hashtbl.replace table id (Completed (result, dep.depends_on));
-        List.iter (fun k -> k result) dep.waiters    (* Cascade! *)
-      end
-  | _ -> ()
+      (* Check if deps all done, resolve if so *)
+      check_and_resolve_dependent id; ...
 ```
+
+**Key**: `await` is called by main program when it **needs** the value.
 
 ---
 
@@ -331,13 +334,15 @@ let x = async (100) in    (* E-ASYNC: #0 Pending *)
 let left = x + 10 in      (* E-LIFT-OP: #1 Dependent [#0] *)
 let right = x + 20 in     (* E-LIFT-OP: #2 Dependent [#0] *)
 left + right              (* E-LIFT-OP: #3 Dependent [#1, #2] *)
+(* When result is needed: main program AWAITS #3 *)
 ```
 
 **Dependency Graph**:
 
 - `#0` Pending (root) $\to$ executes via E-SCHEDULE
-- `#1`, `#2` Dependent on `#0` $\to$ resolve via E-RESOLVE  
-- `#3` Dependent on `#1`, `#2` $\to$ final result
+- `#1`, `#2` Dependent on `#0`  
+- `#3` Dependent on `#1`, `#2`
+- **When main needs result**: E-AWAIT triggers resolution chain
 
 ---
 
@@ -349,11 +354,11 @@ left + right              (* E-LIFT-OP: #3 Dependent [#1, #2] *)
 | 2 | E-LIFT-OP | $\Phi[\#1 \mapsto \text{Dependent}([\#0], +10)]$ |
 | 3 | E-LIFT-OP | $\Phi[\#2 \mapsto \text{Dependent}([\#0], +20)]$ |
 | 4 | E-LIFT-OP | $\Phi[\#3 \mapsto \text{Dependent}([\#1,\#2], +)]$ |
-| 5 | E-SCHEDULE | Pick $\#0$ from $Q$ |
+| 5 | E-SCHEDULE | Pick $\#0$ from $Q$, execute |
 | 6 | E-COMPLETE | $\Phi[\#0 \mapsto \text{Completed}(100)]$ |
-| 7 | E-RESOLVE | $\Phi[\#1 \mapsto \text{Completed}(110)]$ |
-| 8 | E-RESOLVE | $\Phi[\#2 \mapsto \text{Completed}(120)]$ |
-| 9 | E-RESOLVE | $\Phi[\#3 \mapsto \text{Completed}(230)]$ |
+| 7 | **E-AWAIT** | Main needs result, queries $\#3$ |
+| 8 | (resolve) | $\#3$ checks deps $\to$ $\#1, \#2$ check $\#0$ $\to$ resolve chain |
+| 9 | (result) | $\#1=110, \#2=120, \#3=230$ |
 
 ---
 
@@ -363,8 +368,8 @@ left + right              (* E-LIFT-OP: #3 Dependent [#1, #2] *)
 |---------|------|-----------|
 | Async creation | $\uparrow op\ V.M$ (Signal) | `async e` $\to$ E-ASYNC |
 | Parallelism | $P \parallel Q$ (explicit syntax) | $Q$ (implicit queue) |
-| Await | `await p as x in M` | E-LIFT-OP (auto) |
-| Notification | $\downarrow op\ V.M$ (Interrupt) | E-COMPLETE/RESOLVE |
+| Await | `await p as x in M` (explicit) | E-AWAIT (implicit, when needed) |
+| Completion | $\downarrow op\ V.M$ (Interrupt) | E-COMPLETE (state change) |
 | Handler | `with H handle M` | Implicit in $\Phi$ |
 
 ---
@@ -393,7 +398,7 @@ Parallelism emerges from:
 
 1. Multiple tasks in $Q$ (implicit $\parallel$)
 2. E-SCHEDULE chooses non-deterministically
-3. E-RESOLVE auto-propagates
+3. E-AWAIT pulls results, triggering resolution chain
 
 **Formalization**: 5 core rules.
 
@@ -418,9 +423,9 @@ Parallelism emerges from:
 
 1. **E-ASYNC**: Create Future, schedule task
 2. **E-SCHEDULE**: Non-deterministic task execution
-3. **E-COMPLETE**: Task done, notify waiters
+3. **E-COMPLETE**: Task done, state $\to$ Completed
 4. **E-LIFT-OP**: Operator creates Dependent Future
-5. **E-RESOLVE**: All deps done, auto-resolve
+5. **E-AWAIT**: Main program **pulls** value when needed
 
 **vs Aeff**: No explicit $\parallel$, no interrupt $\downarrow op$ — simpler semantics
 
