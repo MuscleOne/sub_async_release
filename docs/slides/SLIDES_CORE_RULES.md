@@ -98,9 +98,9 @@ status ::= Pending(e, rho, ks)     (* Scheduled, not complete *)
 
 **Transitions**:
 
-- $\text{Pending} \xrightarrow{\text{E-COMPLETE}} \text{Completed}$
-- $\text{Dependent} \xrightarrow{\text{E-RESOLVE}} \text{Completed}$
-- `async e` creates Pending
+- $\text{Pending} \xrightarrow{\text{E-SCHEDULE + E-COMPLETE}} \text{Completed}$
+- $\text{Dependent} \xrightarrow{\text{E-AWAIT triggers resolution}} \text{Completed}$
+- `async e` creates Pending, E-AWAIT pulls value
 
 ---
 
