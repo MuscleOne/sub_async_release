@@ -24,9 +24,9 @@ header-includes:
 
 | Rule | WeChat Analogy | Key Insight |
 |------|---------------|-------------|
-| **E-ASYNC** | Post task to group | Space decoupling |
+| **E-ASYNC** | Post job to group | Space decoupling |
 | **E-SCHEDULE** | Whoever grabs it | Non-determinism |
-| **E-COMPLETE** | Task done, status change | State transition only |
+| **E-COMPLETE** | Future done, status change | State transition only |
 | **E-LIFT-OP** | "When ready, compute" | Build graph, not block |
 | **E-AWAIT** | "Is it done yet?" | Main pulls when needed |
 
@@ -38,7 +38,7 @@ header-includes:
 
 | Concept | WeChat Group | Sub_Async |
 |---------|--------------|-----------|
-| Post task | "@everyone: fetch data" | `async e` |
+| Post job | "@everyone: fetch data" | `async e` |
 | Who picks up | Whoever grabs it first | `Scheduler.run_one_random()` |
 | Notify completion | "Done! @you" | `complete id v` |
 | Auto-dependency | "Wait for both, then compute" | `create_dependent_future` |
@@ -74,13 +74,13 @@ $$\langle e, s \rangle \quad \text{where } s = (\rho, \Phi, Q)$$
 |-----------|---------|---------------------|
 | $\rho$ | Environment | `env : (string * value) list` |
 | $\Phi$ | Future table | `Hashtbl : id -> status` |
-| $Q$ | Task queue | `Scheduler.queue` |
+| $Q$ | Pending Future ids | `Scheduler.queue` |
 
 **Update notation**:
 
 - $s[id \mapsto v]$ — update $\Phi(id) = v$ (modify Future table)
-- $s \oplus id$ — $Q := Q \cup \{id\}$ (add task to queue)
-- $s \ominus id$ — $Q := Q \backslash \{id\}$ (remove task from queue)
+- $s \oplus id$ — $Q := Q \cup \{id\}$ (add Future to queue)
+- $s \ominus id$ — $Q := Q \backslash \{id\}$ (remove Future from queue)
 
 <!-- These are **shorthand** for state changes. Instead of writing $(ρ, Φ', Q')$ every time, we write operations on $s$.
 
@@ -110,7 +110,7 @@ status ::= Pending(e, rho, ks)     (* Scheduled, not complete *)
 
 $$\frac{id \text{ fresh}}{\langle \texttt{async } e, s \rangle \to \langle \text{Future}(id), s[id \mapsto \text{Pending}(e, s.\rho, [])] \oplus id \rangle} \text{ (E-ASYNC)}$$
 
-**Intuition**: `async e` immediately returns `Future(id)`, schedules task.
+**Intuition**: `async e` immediately returns `Future(id)`, adds $id$ to scheduler queue $Q$.
 
 ---
 
@@ -121,7 +121,7 @@ $$\frac{id \text{ fresh}}{\langle \texttt{async } e, s \rangle \to \langle \text
        (post to group, don't wait for reply)
        
 [System]: Returns Future #0 immediately
-          Task added to queue Q
+          Future #0 added to queue Q
 ```
 
 **Key**: Fire and forget. Don't specify who. Don't wait.
@@ -152,20 +152,20 @@ let create e env =
 
 $$\frac{id \in s.Q \quad s.\Phi(id) = \text{Pending}(e', \rho', ks)}{\langle v, s \rangle \to \langle v, s' \rangle} \text{ (E-SCHEDULE)}$$
 
-**Intuition**: When main expression is a value, pick a pending task to run.
+**Intuition**: When configuration is $\langle v, s \rangle$ (expression is a value), non-deterministically pick a pending Future from $Q$ to execute.
 
 ---
 
 ## E-SCHEDULE: WeChat Analogy
 
 ```
-[Three tasks waiting in the group]
+[Three Futures waiting in Q]
 
-Task #0: "fetch user info"
-Task #1: "validate permissions"  
-Task #2: "check quota"
+Future #0: compute "fetch user info"
+Future #1: compute "validate permissions"  
+Future #2: compute "check quota"
 
-[Alice]: (randomly grabs Task #1) "I'll do validation"
+[Scheduler]: (randomly picks Future #1) Execute its computation
 ```
 
 **Key**: Whoever grabs it, does it (non-deterministic scheduling).
@@ -184,7 +184,7 @@ done;
 (* scheduler.ml *)
 let run_one_random () =
   let idx = Random.int (Queue.length queue) in  (* Random choice *)
-  (* ... pick task at idx and execute ... *)
+  (* ... pick Future at idx and execute its computation ... *)
   t ()
 ```
 
@@ -198,19 +198,19 @@ $$\frac{s.\Phi(id) = \text{Pending}(v', \rho', ks) \quad (v' \text{ is a value})
 
 (E-COMPLETE)
 
-**Intuition**: Task finishes, status changes to Completed. **No active notification** — waiters poll later.
+**Intuition**: Scheduled computation for Future $id$ evaluates to value $v'$. Status changes Pending $\to$ Completed. **No active notification** — waiters poll later.
 
 ---
 
 ## E-COMPLETE: WeChat Analogy
 
 ```
-[Alice]: (finishes task, updates status)
-         "Task #1 is now DONE. Result = 1000"
-         (just changes her status, doesn't ping anyone)
+[Future #1's computation finishes]
+[Scheduler]: Updates Phi: Future #1 status -> Completed(1000)
+             (just state change, doesn't notify anyone)
 
-[Later, when Bob needs the result...]
-[Bob]: "@Alice, is #1 done?" -> "Yes, here's 1000"
+[Later, when main program needs the result...]
+[Main]: "@Phi: is #1 done?" -> "Yes, here's 1000"
 ```
 
 **Key**: Completion is just state change. **Consumers poll when they need it**.
@@ -220,7 +220,7 @@ $$\frac{s.\Phi(id) = \text{Pending}(v', \rho', ks) \quad (v' \text{ is a value})
 ## E-COMPLETE: OCaml Code
 
 ```ocaml
-(* future.ml - task completion *)
+(* future.ml - Future completion *)
 let complete id v =
   Hashtbl.replace table id (Completed (v, deps))  (* Just state change *)
   (* No active notification! Waiters check via await *)
@@ -396,7 +396,7 @@ x + y
 
 Parallelism emerges from:
 
-1. Multiple tasks in $Q$ (implicit $\parallel$)
+1. Multiple Futures in $Q$ (implicit $\parallel$)
 2. E-SCHEDULE chooses non-deterministically
 3. E-AWAIT pulls results, triggering resolution chain
 
@@ -421,9 +421,9 @@ Parallelism emerges from:
 
 **5 Core Rules**:
 
-1. **E-ASYNC**: Create Future, schedule task
-2. **E-SCHEDULE**: Non-deterministic task execution
-3. **E-COMPLETE**: Task done, state $\to$ Completed
+1. **E-ASYNC**: Create Future, add to $Q$
+2. **E-SCHEDULE**: Non-deterministically execute a Future's computation
+3. **E-COMPLETE**: Future's computation done, state $\to$ Completed
 4. **E-LIFT-OP**: Operator creates Dependent Future
 5. **E-AWAIT**: Main program **pulls** value when needed
 
