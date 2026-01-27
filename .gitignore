@@ -8,6 +8,15 @@ _build/
 # External resources (learning materials, cloned from other repos)
 external_resources/
 
+# Personal logs (not for public repo)
+daydaylog.md
+
+# VS Code Copilot configuration (private)
+.github/
+
+# Agda compiled files
+*.agdai
+
 # Editor
 *.swp
 *~

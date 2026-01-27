@@ -1,0 +1,23 @@
+# Learning Agda - Practice Files
+
+This directory contains tutorial exercises and learning materials.
+
+Feel free to experiment here without worrying about breaking the formal proofs.
+
+## Suggested Learning Path
+
+1. **PLFA Part 1** (Logical Foundations)
+   - Naturals.agda - Natural numbers, recursion
+   - Induction.agda - Proof by induction
+   - Relations.agda - Binary relations, ordering
+
+2. **PLFA Part 2** (Programming Languages)
+   - Lambda.agda - Untyped lambda calculus
+   - Properties.agda - Progress and preservation
+   - DeBruijn.agda - DeBruijn indices (for our environment)
+
+3. **Mini Projects**
+   - SimpleArith.agda - Arithmetic expressions with small-step semantics
+   - SimpleTypes.agda - Simply-typed lambda calculus
+
+Once comfortable, move to `../agda/` for Sub_Async formalization.

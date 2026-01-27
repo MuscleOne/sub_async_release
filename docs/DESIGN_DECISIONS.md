@@ -259,24 +259,32 @@ do
 
 ### 设计选择
 
-`Future<T>` 对类型参数 `T` 协变：
+`Future<T>` 对类型参数 `T` 协变，且支持自动提升：
 
 ```ocaml
-(* type_check.ml 第 96-99 行 *)
-let rec subtype ty1 ty2 = match ty1, ty2 with
-  | TFuture t1, TFuture t2 -> subtype t1 t2  (* 协变 *)
-  | ty1, ty2 -> ty1 = ty2
+(* type_check.ml 第 88-105 行，简化展示核心规则 *)
+and subtype ty1 ty2 =
+  (ty1 = ty2) ||
+    (match ty1, ty2 with
+       | TFuture ty1', TFuture ty2' ->
+           subtype ty1' ty2'           (* Future 协变 *)
+       | ty, TFuture ty' ->
+           subtype ty ty'              (* 自动提升: T <: Future<T> *)
+       | (* ... 其他规则：函数逆变/协变、Record width subtyping ... *)
+       | _, _ -> false)
 ```
 
 **含义**：
 ```ocaml
-subtype TInt (TFuture TInt)         (* ✅ int 是 Future<int> 的子类型 *)
-subtype (TFuture TInt) TInt         (* ❌ 反向不成立 *)
+subtype TInt (TFuture TInt)         (* ✅ int <: Future<int>，自动提升 *)
+subtype (TFuture TInt) TInt         (* ❌ Future<int> 不是 int 的子类型 *)
+subtype (TFuture TInt) (TFuture TInt)  (* ✅ 相等类型 *)
 ```
 
 **理由**：
-- 值可以自动提升为 Future（`async (n)` 隐式转换）
+- 值可以自动提升为 Future（隐式转换，无需显式 `async`）
 - 符合"async 只是延迟计算"的直觉
+- 允许 `int` 类型的值传递给期望 `Future<int>` 的位置
 
 **局限性**：
 - 不安全的协变（如果 Future 可变，会破坏类型安全）
