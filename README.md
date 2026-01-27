@@ -90,9 +90,9 @@ type dependency = {
 
 ## 核心机制
 
-**异步语义**：`async e` 立即返回 Future，任务进入调度队列非确定性执行。
+**异步语义**：`async e` 立即返回 Future，Future id 进入调度队列 $Q$，非确定性执行。
 
-**Pull-based 取值**：主程序评估到需要具体值时（如 `if` 条件），主动查询 Future table。后台任务完成仅改变状态，不主动通知。
+**Pull-based 取值**：主程序评估到需要具体值时（如 `if` 条件），主动查询 Future table $\Phi$。Future 计算完成仅改变状态（Pending → Completed），不主动通知。
 
 ```ocaml
 (* 主程序在需要 int 值时，主动 await *)
@@ -131,7 +131,7 @@ let rec value_to_int v k = match v with
 
 ```
 src/sub_async/
-├── scheduler.ml   (46 行)   # 任务调度
+├── scheduler.ml   (46 行)   # Future 调度 (队列 Q)
 ├── future.ml      (216 行)  # Future 状态机 + GC
 ├── eval.ml        (275 行)  # 纯求值逻辑
 ├── type_check.ml            # 类型检查
@@ -142,8 +142,8 @@ src/sub_async/
 **核心模块**：
 
 - **Scheduler** ([scheduler.ml](src/sub_async/scheduler.ml))：非确定性调度
-  - `schedule`：任务入队
-  - `run_one_random`：随机选择任务执行
+  - `schedule`：Future id 入队
+  - `run_one_random`：随机选择 Future 执行其计算
   - `is_empty`：检查队列状态
 
 - **Future** ([future.ml](src/sub_async/future.ml))：Future 状态管理
