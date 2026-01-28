@@ -352,6 +352,21 @@ let binary_op op v1 v2 k = match v1, v2 with
 
 ---
 
+## M-LIFT-OP: Limitations
+
+**Which operators can be lifted?**
+
+| Operators | Liftable? | Reason |
+|-----------|-----------|--------|
+| `+`, `-`, `*`, `/`, `<`, `=` | Yes | Strict evaluation |
+| `&&`, `||` | **No** | Short-circuit: need left value first |
+
+**Problem**: `Future(id) && e` — can't decide whether to evaluate `e` until `id` completes.
+
+**Current**: Boolean ops with Futures block-await both sides (lose short-circuit).
+
+---
+
 ## Main Rules: M-AWAIT
 
 **Formal**:
