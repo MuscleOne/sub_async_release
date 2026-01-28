@@ -14,44 +14,32 @@ header-includes:
 
 ## Outline
 
-1. **Language Motivation**: Space/Time Decoupling (WeChat Analogy)
+1. **Language Motivation**: Space/Time Decoupling
 2. **Formalization Motivation**: Externalize runtime state
-3. **Abstract Syntax**: Types, expressions, values
+3. **Abstract Syntax**: Expressions, values, Future status
 4. **Configuration**: $\langle e, s \rangle$ where $s = (\rho, \Phi, Q)$
-5. **Future Status**: Exactly 3 states (Pending, Completed, Dependent)
-6. **Non-deterministic Semantics**: True concurrency via rule choice
-7. **6 Core Rules**:
-   - Main rules (M-*): M-ASYNC, M-LIFT-OP, M-AWAIT
-   - Scheduler rules (S-*): S-SCHEDULE, S-COMPLETE, S-RESOLVE
+5. **Well-Formedness**: Invariant $\text{WF}(s)$
+6. **6 Core Rules** (+ E-CONTEXT):
+   - Main: M-ASYNC, M-LIFT-OP, M-AWAIT
+   - Scheduler: S-SCHEDULE, S-COMPLETE, S-RESOLVE
+7. **Progress**: Under $\text{WF}(s)$, never globally stuck
 8. **Comparison with Aeff**
 
 ---
 
 ## Why Sub_Async? (Language Motivation)
 
-| Rule | WeChat Analogy | Key Insight |
-|------|---------------|-------------|
-| **M-ASYNC** | Post job to group | Space decoupling |
-| **M-LIFT-OP** | "When ready, compute" | Build graph, not block |
-| **M-AWAIT** | "Give me the result" | Extract when ready |
-| **S-SCHEDULE** | Whoever grabs it | Non-determinism |
-| **S-COMPLETE** | Future done, status change | State transition only |
-| **S-RESOLVE** | Dependencies ready | Auto-resolve |
+**Core idea**: Space/time decoupling through implicit async coordination.
 
-**Core innovation**: Operators detect Futures $\to$ implicit parallelism
+| Concept | Analogy | Sub_Async Mechanism |
+|---------|---------|---------------------|
+| **Space decoupling** | Post to group, anyone handles | `async e` → any scheduler picks |
+| **Time decoupling** | Return now, result later | `async e` → returns `Future(id)` |
+| **Implicit parallelism** | "When both ready, compute" | `Future op Future` → dependency graph |
+| **Non-blocking ops** | Don't wait, just register | M-LIFT-OP builds graph |
+| **Pull semantics** | Ask when you need it | M-AWAIT extracts value |
 
----
-
-## WeChat Group Analogy
-
-| Concept | WeChat Group | Sub_Async |
-|---------|--------------|-----------|
-| Post job | "@everyone: fetch data" | `async e` |
-| Who picks up | Whoever grabs it first | `Scheduler.run_one_random()` |
-| Job done | Status updated in shared board | `complete id v` |
-| Auto-dependency | "Wait for both, then compute" | `create_dependent_future` |
-
-**Core idea**: Post without specifying who (space decoupling), return immediately (time decoupling)
+**Innovation**: Operators auto-detect Futures → parallelism without explicit `||` (parallel) syntax.
 
 ---
 
@@ -77,12 +65,14 @@ Scheduler.schedule (fun () -> ...)   (* Where is this? *)
 ## Abstract Syntax (1/2)
 
 **Expressions**:
-$$e ::= x \mid n \mid b \mid e_1 \mathbin{\mathit{op_s}} e_2 \mid e_1 \mathbin{\mathit{op_b}} e_2 \mid \texttt{if } e_1 \texttt{ then } e_2 \texttt{ else } e_3$$
+$$e ::= x \mid n \mid b \mid e_1 \mathbin{\mathit{op}} e_2 \mid \texttt{if } e_1 \texttt{ then } e_2 \texttt{ else } e_3$$
 $$\mid \texttt{fun } x \texttt{ is } e \mid e_1\ e_2 \mid \texttt{let } x = e_1 \texttt{ in } e_2 \mid \texttt{async } e$$
 
-**Operators**: $\mathit{op_s} \in \{+, -, *, /, <, =\}$ (strict); \quad $\mathit{op_b} \in \{\land, \lor\}$ (short-circuit)
+**Operators**: $\mathit{op} \in \{+, -, *, /, <, =\}$ (strict, liftable to Futures)
 
-**Values** (subset of expressions: $v \subseteq e$):
+*Note: Short-circuit operators* (`&&`, `||`) *omitted — incompatible with Future lifting (see Limitations).*
+
+**Values**:
 $$v ::= n \mid b \mid \langle x, e, \rho \rangle \mid \texttt{Future}(id)$$
 
 **Environments**:
@@ -95,15 +85,15 @@ $$\rho ::= \emptyset \mid \rho[x \mapsto v]$$
 **Lists**:
 $$\textit{ids} ::= [\,] \mid id :: \textit{ids} \qquad \textit{vs} ::= [\,] \mid v :: \textit{vs}$$
 
-**Auxiliary**:
-$$\text{range}(\rho) \triangleq \{v \mid \exists x.\ \rho(x) = v\} \qquad id \in ids \triangleq \text{list membership}$$
+**Auxiliary functions**:
+$$\text{range}(\rho) \triangleq \{v \mid \exists x.\ \rho(x) = v\}$$
 $$\text{collect}(\Phi, [\,]) = [\,]$$
-$$\text{collect}(\Phi, id :: \textit{ids}) = v :: \text{collect}(\Phi, \textit{ids}) \quad \text{if } \Phi(id) = \texttt{Completed}(v)$$
+$$\text{collect}(\Phi, id :: \textit{ids}) = v :: \text{collect}(\Phi, \textit{ids}) \quad \text{when } \Phi(id) = \texttt{Completed}(v)$$
 
-**Types**:
-$$\tau ::= \texttt{int} \mid \texttt{bool} \mid \tau_1 \to \tau_2 \mid \texttt{Future}\ \tau$$
+**Restricted sub-language** $e_f$ (Future task bodies — no nested `async`):
+$$e_f ::= x \mid n \mid b \mid e_f \mathbin{\mathit{op}} e_f \mid \texttt{if } e_f \texttt{ then } e_f \texttt{ else } e_f \mid \texttt{fun } x \texttt{ is } e_f \mid e_f\ e_f \mid \texttt{let } x = e_f \texttt{ in } e_f$$
 
-**Restricted sub-language** (for Future tasks): $e_f ::= x \mid n \mid b \mid e_f \mathbin{\mathit{op_s}} e_f \mid \texttt{if } e_f \texttt{ then } e_f \texttt{ else } e_f \mid \ldots$ (no `async`)
+*This is the full language minus* `async` *— ensures tasks cannot spawn sub-tasks.*
 
 ---
 
@@ -120,7 +110,7 @@ $$\langle e, s \rangle \quad \text{where } s = (\rho, \Phi, Q)$$
 **Formal definitions**:
 $$\text{dom}(\Phi) \triangleq \{id \mid \exists \sigma.\ \Phi(id) = \sigma\}$$
 $$s[id \mapsto \sigma] \triangleq (\rho, \Phi[id \mapsto \sigma], Q)$$
-$$s \oplus id \triangleq (\rho, \Phi, Q \cup \{id\}) \qquad s \ominus id \triangleq (\rho, \Phi, Q \setminus \{id\})$$
+$$s \oplus id \triangleq (\rho, \Phi, Q \cup \{id\}) \qquad s \ominus id \triangleq (\rho, \Phi, Q \mathbin{\backslash} \{id\})$$
 $$\text{fresh}(\Phi) \triangleq \text{choose } id \text{ such that } id \notin \text{dom}(\Phi)$$
 
 <!-- These are **shorthand** for state changes. Instead of writing $(ρ, Φ', Q')$ every time, we write operations on $s$.
@@ -155,7 +145,7 @@ where $f : v^{|ids|} \to v$ is a combine function (arity = dependency list lengt
 **Creation**:
 
 - `async e` $\to$ creates $\texttt{Pending}(e, \rho)$
-- `Future(id) op_s v` $\to$ creates $\texttt{Dependent}([id], f)$
+- `Future(id) op v` $\to$ creates $\texttt{Dependent}([id], f)$
 
 **Extraction**: M-AWAIT pulls value from $\texttt{Completed}$
 
@@ -177,12 +167,12 @@ where $f : v^{|ids|} \to v$ is a combine function (arity = dependency list lengt
 ## Evaluation Contexts (CBV, Left-to-Right)
 
 **General contexts** (where evaluation can proceed):
-$$E ::= [\,] \mid E\ e \mid v\ E \mid E \mathbin{\mathit{op_s}} e \mid v \mathbin{\mathit{op_s}} E \mid \texttt{let } x = E \texttt{ in } e \mid \texttt{if } E \texttt{ then } e_2 \texttt{ else } e_3$$
+$$E ::= [\,] \mid E\ e \mid v\ E \mid E \mathbin{\mathit{op}} e \mid v \mathbin{\mathit{op}} E \mid \texttt{let } x = E \texttt{ in } e \mid \texttt{if } E \texttt{ then } e_2 \texttt{ else } e_3$$
 
-**Demand contexts** (positions requiring **concrete** value — triggers M-AWAIT):
+**Demand contexts** $E_d$ (positions requiring **concrete** value → triggers M-AWAIT):
 $$E_d ::= [\,]\ e \mid v\ [\,] \mid \texttt{if } [\,] \texttt{ then } e_2 \texttt{ else } e_3$$
 
-**Note**: $\mathit{op_s}$ positions **not** in $E_d$ — Futures trigger M-LIFT-OP instead of await.
+**Key design**: $\mathit{op}$ positions are **not** in $E_d$ — Futures at operator positions trigger M-LIFT-OP (builds dependency) instead of M-AWAIT (blocks).
 
 **Context rule**:
 $$\frac{\langle e, s \rangle \to \langle e', s' \rangle}{\langle E[e], s \rangle \to \langle E[e'], s' \rangle}$$ \hfill (E-CONTEXT)
@@ -205,53 +195,21 @@ $$\frac{\langle e, s \rangle \to \langle e', s' \rangle}{\langle E[e], s \rangle
 
 ---
 
-## WeChat Analogy: True Concurrency
-
-```
-+------------------------------------------------+
-|  Everyone online simultaneously                |
-|                                                |
-|  [You]    [MemberA]  [MemberB]  [MemberC]      |
-|    |         |          |          |           |
-|    +--post-->|          |          |           |
-|    |         +--------->|          |  (any     |
-|    |<--------+          |<---------+   order!) |
-|                                                |
-|  Who acts next? -> Non-deterministic!          |
-+------------------------------------------------+
-```
-
-**Not** "post and wait" — **all act concurrently**
-
----
-
 ## Main Rules: M-ASYNC
 
 **Formal**:
 
-$$\frac{id = \text{fresh}(s.\Phi) \quad e \in e_f \quad \texttt{Future}(\_) \notin \text{range}(s.\rho)}{\langle \texttt{async } e, s \rangle \to \langle \texttt{Future}(id), (s \oplus id)[id \mapsto \texttt{Pending}(e, s.\rho)] \rangle}$$
+$$\frac{id = \text{fresh}(s.\Phi) \quad e \in e_f}{\langle \texttt{async } e, s \rangle \to \langle \texttt{Future}(id), (s \oplus id)[id \mapsto \texttt{Pending}(e, s.\rho)] \rangle}$$
 \hfill (M-ASYNC)
 
-**Intuition**: `async e` immediately returns `Future(id)`, adds $id$ to task set $Q$.
+**Intuition**: `async e` immediately returns `Future(id)`, adds $id$ to $Q$.
 
-**Restrictions** (design choice for simpler semantics):
+**Restriction**: $e \in e_f$ ensures task body contains no nested `async`.
 
-- $e \in e_f$: task body has no `async` syntax
-- $\texttt{Future}(\_) \notin \text{range}(s.\rho)$: captured env is **Future-free** (task runs independently)
-
----
-
-## M-ASYNC: WeChat Analogy
-
+*Note: Environment $s.\rho$ may contain Futures — this allows patterns like:*
 ```
-[You]: "@everyone: compute expensive_task"
-       (post to group, don't wait for reply)
-       
-[System]: Returns Future #0 immediately
-          Future #0 added to queue Q
+let x = async 1 in async (x + 1)   (* OK: x is Future, captured in env *)
 ```
-
-**Key**: Fire and forget. Don't specify who. Don't wait.
 
 ---
 
@@ -289,22 +247,6 @@ where $\to_f$ is the standard small-step relation **restricted to $e_f$** (no as
 
 ---
 
-## S-SCHEDULE: WeChat Analogy
-
-```
-[Three Futures waiting in Q]
-
-Future #0: compute "fetch user info"
-Future #1: compute "validate permissions"  
-Future #2: compute "check quota"
-
-[Scheduler]: (randomly picks Future #1) Execute its computation
-```
-
-**Key**: Whoever grabs it, does it (non-deterministic scheduling).
-
----
-
 ## S-SCHEDULE: OCaml Code
 
 ```ocaml
@@ -332,21 +274,6 @@ $$\frac{id \in s.Q \quad s.\Phi(id) = \texttt{Pending}(v, \rho)}{\langle e, s \r
 \hfill (S-COMPLETE)
 
 **Intuition**: Future $id$ finished (expression reduced to value). Remove from $Q$, mark Completed.
-
----
-
-## S-COMPLETE: WeChat Analogy
-
-```
-[Future #1's computation finishes]
-[Scheduler]: Updates Phi: Future #1 status -> Completed(1000)
-             (just state change, doesn't notify anyone)
-
-[Later, when main program needs the result...]
-[Main]: "@Phi: is #1 done?" -> "Yes, here's 1000"
-```
-
-**Key**: Completion is just state change. **Consumers poll when they need it**.
 
 ---
 
@@ -379,53 +306,20 @@ $$\frac{s.\Phi(id) = \texttt{Dependent}(\textit{ids}, f) \quad \forall id' \in \
 
 ---
 
-## S-RESOLVE: WeChat Analogy
-
-```
-[Future #3 depends on #1 and #2]
-
-[System checks]: Is #1 done? Yes (100)
-                 Is #2 done? Yes (200)
-                 
-[System]: All deps ready! Compute: 100 + 200 = 300
-          Future #3 status -> Completed(300)
-```
-
-**Key**: Automatic resolution when dependencies complete.
-
----
-
 ## Main Rules: M-LIFT-OP
 
-$$\frac{id = \text{fresh}(s.\Phi)}{\langle \texttt{Future}(id_1) \mathbin{\mathit{op_s}} \texttt{Future}(id_2), s \rangle \to \langle \texttt{Future}(id), s[id \mapsto \texttt{Dependent}([id_1, id_2], f_{op_s})] \rangle}$$
+$$\frac{id = \text{fresh}(s.\Phi)}{\langle \texttt{Future}(id_1) \mathbin{\mathit{op}} \texttt{Future}(id_2), s \rangle \to \langle \texttt{Future}(id), s[id \mapsto \texttt{Dependent}([id_1, id_2], f_{op})] \rangle}$$
 \hfill (M-LIFT-OP-FF)
 
-$$\frac{id = \text{fresh}(s.\Phi)}{\langle \texttt{Future}(id_1) \mathbin{\mathit{op_s}} n, s \rangle \to \langle \texttt{Future}(id), s[id \mapsto \texttt{Dependent}([id_1], f_{op_s,n})] \rangle}$$
+$$\frac{id = \text{fresh}(s.\Phi)}{\langle \texttt{Future}(id_1) \mathbin{\mathit{op}} v_2, s \rangle \to \langle \texttt{Future}(id), s[id \mapsto \texttt{Dependent}([id_1], \lambda v_1.\, v_1 \mathbin{op} v_2)] \rangle}$$
 \hfill (M-LIFT-OP-FV)
 
-$$\frac{id = \text{fresh}(s.\Phi)}{\langle n \mathbin{\mathit{op_s}} \texttt{Future}(id_2), s \rangle \to \langle \texttt{Future}(id), s[id \mapsto \texttt{Dependent}([id_2], f_{n,op_s})] \rangle}$$
+$$\frac{id = \text{fresh}(s.\Phi)}{\langle v_1 \mathbin{\mathit{op}} \texttt{Future}(id_2), s \rangle \to \langle \texttt{Future}(id), s[id \mapsto \texttt{Dependent}([id_2], \lambda v_2.\, v_1 \mathbin{op} v_2)] \rangle}$$
 \hfill (M-LIFT-OP-VF)
 
-where $f_{op_s}([n_1, n_2]) = n_1 \mathbin{op_s} n_2$, $f_{op_s,n}([n_1]) = n_1 \mathbin{op_s} n$, $f_{n,op_s}([n_2]) = n \mathbin{op_s} n_2$.
+where $f_{op}([v_1, v_2]) = v_1 \mathbin{op} v_2$ (semantic interpretation of operator $op$).
 
-**Combine functions**: $f : v^{|ids|} \to v$ (arity matches dependency list length).
-
----
-
-## M-LIFT-OP: WeChat Analogy
-
-```
-[You]: "When Alice and Bob both finish, sum their results"
-       (not waiting, just registering dependency)
-
-[System]: Creates Future #3
-          depends_on: [#1, #2]
-          compute: (+)
-          
-[You]: (continue other work, non-blocking)
-```
-
-**Key**: Don't await. Build dependency graph instead.
+**Combine function** $f$: Partial function from value list to value. Always total for well-formed $\Phi$.
 
 ---
 
@@ -446,18 +340,17 @@ let binary_op op v1 v2 k = match v1, v2 with
 
 ---
 
-## M-LIFT-OP: Limitations
+## M-LIFT-OP: Limitations (Why No `&&`/`||`)
 
-**Which operators can be lifted?**
+| Operator | Liftable? | Reason |
+|----------|-----------|--------|
+| `+`, `-`, `*`, `/` | Yes | Strict: needs both operands anyway |
+| `<`, `=` | Yes | Comparison is strict |
+| `&&`, `||` | No | **Short-circuit**: `false && e` must not evaluate `e` |
 
-| Operators | Liftable? | Reason |
-|-----------|-----------|--------|
-| `+`, `-`, `*`, `/`, `<`, `=` | Yes | Strict evaluation |
-| `&&`, `||` | **No** | Short-circuit: need left value first |
+**The problem**: `Future(id) && e` — we can't decide whether to evaluate `e` without knowing the value of `Future(id)` first. This fundamentally conflicts with lift-to-dependency semantics.
 
-**Problem**: `Future(id) && e` — can't decide whether to evaluate `e` until `id` completes.
-
-**Current**: Boolean ops with Futures block-await both sides (lose short-circuit).
+**Design decision**: Omit `&&`/`||` from this core calculus. (Extension: explicit `await` syntax.)
 
 ---
 
@@ -475,7 +368,7 @@ $$\frac{s.\Phi(id) = \texttt{Completed}(v)}{\langle \texttt{Future}(id), s \rang
 
 **Instances of $E_d$**: if-condition, function operator/argument positions.
 
-**Not in $E_d$**: $\mathit{op_s}$ positions (Futures trigger M-LIFT-OP instead).
+**Not in $E_d$**: $\mathit{op}$ positions (Futures trigger M-LIFT-OP instead).
 
 **If not completed?** The term is **stuck** — but S-SCHEDULE can still fire!
 
@@ -483,43 +376,24 @@ $$\frac{s.\Phi(id) = \texttt{Completed}(v)}{\langle \texttt{Future}(id), s \rang
 
 ## Progress Property
 
-**Theorem (Progress)**: If $\text{WF}(s)$, then either:
+**Theorem (Progress)**: If $\text{WF}(s)$ and $e$ is not a final value, then:
+$$\exists e', s'.\ \langle e, s \rangle \to \langle e', s' \rangle \quad \text{OR} \quad Q \neq \emptyset$$
 
-1. $e$ is a non-Future value (done!), or
-2. $e = \texttt{Future}(id)$ with $\Phi(id) = \texttt{Completed}(v)$ (can M-AWAIT-FINAL), or
-3. $\exists e', s'.\ \langle e, s \rangle \to \langle e', s' \rangle$ (can step)
+**Globally stuck** only when ALL of:
 
-**Stuck condition**: $e = E_d[\texttt{Future}(id)]$ or $e = \texttt{Future}(id)$ where $\Phi(id) \neq \texttt{Completed}$ **and** $Q = \emptyset$.
+1. Main needs a Future: $e = E_d[\texttt{Future}(id)]$ or $e = \texttt{Future}(id)$
+2. That Future not completed: $\Phi(id) \neq \texttt{Completed}(\_)$
+3. No pending work: $Q = \emptyset$
 
-*Note: Typing rules omitted (standard STLC + Future); Progress holds for well-typed terms.*
-
-**Key insight**: When main is stuck on a Future, S-SCHEDULE can still fire (if $Q \neq \emptyset$)!
-
-```
-Possible trace:
-  <if Future(#0) then..., s>   -- main stuck, needs bool, Q = {#0}
-  <if Future(#0) then..., s>   ->  <..., s'>   (S-SCHEDULE fires)
-  <if Future(#0) then..., s'>  ->  <if true then..., s'>  (M-AWAIT)
-```
-
-**True concurrency**: Main stuck $\neq$ system stuck.
-
----
-
-## M-AWAIT: WeChat Analogy
+**Key insight**: Main stuck $\neq$ system stuck!
 
 ```
-[Main program evaluating: if (x > 0) then ... ]
-[x is Future(#1)]
-
-[Main]: "I need the actual value of x now"
-        "@ FutureTable: give me #1's result"
-
-[If Completed]: "Here's 100" -> continue with if(100 > 0)
-[If Pending]:   Main is stuck -- but scheduler keeps working!
+Trace (main blocked, system progresses):
+  <if Future(#0) then..., s>   -- main needs bool, #0 in Q
+  -> <if Future(#0) then..., s'>  (S-SCHEDULE)
+  -> <if Future(#0) then..., s''> (S-COMPLETE)
+  -> <if true then..., s''>       (M-AWAIT)
 ```
-
-**Key**: Main **waits** for result. But scheduler rules can still fire concurrently.
 
 ---
 
@@ -635,21 +509,22 @@ Parallelism emerges from:
 
 ## Summary
 
-**Non-deterministic Semantics** with **7 Core Rules + E-CONTEXT**:
+**Non-deterministic Semantics**: 6 Core Rules + E-CONTEXT
 
-**Main rules** (M-*): expression $e$ steps
+| Rule | Category | Effect |
+|------|----------|--------|
+| **M-ASYNC** | Main | Creates Pending Future, adds to $Q$ |
+| **M-LIFT-OP** | Main | Builds Dependent Future (no blocking) |
+| **M-AWAIT** | Main | Extracts value from Completed Future |
+| **S-SCHEDULE** | Scheduler | Executes one step of a Pending Future |
+| **S-COMPLETE** | Scheduler | Pending → Completed (task done) |
+| **S-RESOLVE** | Scheduler | Dependent → Completed (deps ready) |
 
-- **M-ASYNC**: Create Future (restricted: Future-free task + env), add to $Q$
-- **M-LIFT-OP**: Operator on Future creates Dependent Future (no blocking)
-- **M-AWAIT / M-AWAIT-FINAL**: Extract value at demand contexts or top-level
+**Key properties**:
 
-**Scheduler rules** (S-*): $e$ unchanged, only state $s$ changes
-
-- **S-SCHEDULE**: Non-deterministically execute a Future (no global state change)
-- **S-COMPLETE**: Pending $\to$ Completed when done
-- **S-RESOLVE**: Dependent $\to$ Completed when all dependencies ready
-
-**Key formal properties**: WF(s) preserved; Progress holds under WF.
+- $\text{WF}(s)$ preserved by all rules
+- Progress: system stuck $\Leftrightarrow$ awaiting incomplete Future **and** $Q = \emptyset$
+- No fairness/probability — models all interleavings
 
 ---
 
