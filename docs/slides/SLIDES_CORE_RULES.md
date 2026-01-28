@@ -1,6 +1,6 @@
 ---
 title: "Sub_Async: Operational Semantics"
-subtitle: "Interleaving Semantics for Implicit Async Coordination"
+subtitle: "Non-deterministic Semantics for Implicit Async Coordination"
 author: "Chen Tianhao"
 date: "January 2026"
 classoption: "aspectratio=169"
@@ -17,8 +17,10 @@ header-includes:
 1. **Language Motivation**: Space/Time Decoupling (WeChat Analogy)
 2. **Formalization Motivation**: Externalize runtime state
 3. **Configuration**: $\langle e, s \rangle$ where $s = (\rho, \Phi, Q)$
-4. **Interleaving Semantics**: True concurrency via non-determinism
-5. **6 Core Rules**: E-ASYNC, E-SCHEDULE, E-COMPLETE, E-RESOLVE, E-LIFT-OP, E-AWAIT
+4. **Non-deterministic Semantics**: True concurrency via rule choice
+5. **6 Core Rules**:
+   - Main rules (M-*): M-ASYNC, M-LIFT-OP, M-AWAIT
+   - Scheduler rules (S-*): S-SCHEDULE, S-COMPLETE, S-RESOLVE
 6. **Comparison with Aeff**
 
 ---
@@ -27,11 +29,12 @@ header-includes:
 
 | Rule | WeChat Analogy | Key Insight |
 |------|---------------|-------------|
-| **E-ASYNC** | Post job to group | Space decoupling |
-| **E-SCHEDULE** | Whoever grabs it | Non-determinism |
-| **E-COMPLETE** | Future done, status change | State transition only |
-| **E-LIFT-OP** | "When ready, compute" | Build graph, not block |
-| **E-AWAIT** | "Is it done yet?" | Main pulls when needed |
+| **M-ASYNC** | Post job to group | Space decoupling |
+| **M-LIFT-OP** | "When ready, compute" | Build graph, not block |
+| **M-AWAIT** | "Give me the result" | Extract when ready |
+| **S-SCHEDULE** | Whoever grabs it | Non-determinism |
+| **S-COMPLETE** | Future done, status change | State transition only |
+| **S-RESOLVE** | Dependencies ready | Auto-resolve |
 
 **Core innovation**: Operators detect Futures $\to$ implicit parallelism
 
@@ -43,7 +46,7 @@ header-includes:
 |---------|--------------|-----------|
 | Post job | "@everyone: fetch data" | `async e` |
 | Who picks up | Whoever grabs it first | `Scheduler.run_one_random()` |
-| Notify completion | "Done! @you" | `complete id v` |
+| Job done | Status updated in shared board | `complete id v` |
 | Auto-dependency | "Wait for both, then compute" | `create_dependent_future` |
 
 **Core idea**: Post without specifying who (space decoupling), return immediately (time decoupling)
@@ -94,28 +97,32 @@ $$\langle e, s \rangle \quad \text{where } s = (\rho, \Phi, Q)$$
 ## Future Status (State Machine)
 
 ```ocaml
-status ::= Pending(e, rho, ks)     (* Scheduled, not complete *)
-         | Completed(v)            (* Done *)
-         | Dependent(deps, f, ks)  (* Waiting for dependencies *)
+status ::= Pending(e, rho)       (* Scheduled, not complete *)
+         | Completed(v)          (* Done *)
+         | Dependent(deps, f)    (* Waiting for dependencies *)
 ```
 
 **Transitions**:
 
-- $\text{Pending} \xrightarrow{\text{E-SCHEDULE + E-COMPLETE}} \text{Completed}$
-- $\text{Dependent} \xrightarrow{\text{E-RESOLVE}} \text{Completed}$
-- `async e` creates Pending, E-AWAIT pulls value
+- $\text{Pending} \xrightarrow{\text{S-SCHEDULE + S-COMPLETE}} \text{Completed}$
+- $\text{Dependent} \xrightarrow{\text{S-RESOLVE}} \text{Completed}$
+- `async e` creates Pending, M-AWAIT pulls value
 
 ---
 
-## Interleaving Semantics (True Concurrency)
+## Non-deterministic Semantics
 
-**Key insight**: Non-deterministic scheduling = all possible interleavings
+**Key insight**: All rules share one reduction relation $\to$
 
-$$\frac{\langle e, s \rangle \to_{\text{main}} \langle e', s' \rangle}{\langle e, s \rangle \to \langle e', s' \rangle} \text{ (STEP-MAIN)}$$
+- Multiple rules may be applicable at the same time
+- **Non-deterministic choice** which rule fires
 
-$$\frac{s.Q \neq \emptyset \quad \langle e, s \rangle \to_{\text{sched}} \langle e, s' \rangle}{\langle e, s \rangle \to \langle e, s' \rangle} \text{ (STEP-SCHED)}$$
+**Rule naming convention**:
 
-**No priority** between rules $\Rightarrow$ true concurrency!
+- **M-*** (Main): expression $e$ steps forward
+- **S-*** (Scheduler): $e$ unchanged, only state $s$ changes
+
+**No priority** $\Rightarrow$ models all possible interleavings
 
 ---
 
@@ -139,17 +146,17 @@ $$\frac{s.Q \neq \emptyset \quad \langle e, s \rangle \to_{\text{sched}} \langle
 
 ---
 
-## Rule 1: E-ASYNC
+## Main Rules: M-ASYNC
 
 **Formal**:
 
-$$\frac{id \text{ fresh}}{\langle \texttt{async } e, s \rangle \to \langle \text{Future}(id), s[id \mapsto \text{Pending}(e, s.\rho, [])] \oplus id \rangle} \text{ (E-ASYNC)}$$
+$$\frac{id \text{ fresh}}{\langle \texttt{async } e, s \rangle \to \langle \text{Future}(id), s[id \mapsto \text{Pending}(e, s.\rho)] \oplus id \rangle} \text{ (M-ASYNC)}$$
 
 **Intuition**: `async e` immediately returns `Future(id)`, adds $id$ to scheduler queue $Q$.
 
 ---
 
-## E-ASYNC: WeChat Analogy
+## M-ASYNC: WeChat Analogy
 
 ```
 [You]: "@everyone: compute expensive_task"
@@ -163,7 +170,7 @@ $$\frac{id \text{ fresh}}{\langle \texttt{async } e, s \rangle \to \langle \text
 
 ---
 
-## E-ASYNC: OCaml Code
+## M-ASYNC: OCaml Code
 
 ```ocaml
 (* eval.ml *)
@@ -181,11 +188,11 @@ let create e env =
 
 ---
 
-## Rule 2: E-SCHEDULE
+## Scheduler Rules: S-SCHEDULE
 
 **Formal**:
 
-$$\frac{id \in s.Q \quad s.\Phi(id) = \text{Pending}(e', \rho', ks)}{\langle e, s \rangle \to_{\text{sched}} \langle e, s' \rangle} \text{ (E-SCHEDULE)}$$
+$$\frac{id \in s.Q \quad s.\Phi(id) = \text{Pending}(e', \rho')}{\langle e, s \rangle \to \langle e, s' \rangle} \text{ (S-SCHEDULE)}$$
 
 where $s'$ reflects one step of evaluating $e'$ in environment $\rho'$.
 
@@ -193,7 +200,7 @@ where $s'$ reflects one step of evaluating $e'$ in environment $\rho'$.
 
 ---
 
-## E-SCHEDULE: WeChat Analogy
+## S-SCHEDULE: WeChat Analogy
 
 ```
 [Three Futures waiting in Q]
@@ -209,7 +216,7 @@ Future #2: compute "check quota"
 
 ---
 
-## E-SCHEDULE: OCaml Code
+## S-SCHEDULE: OCaml Code
 
 ```ocaml
 (* eval.ml - main loop *)
@@ -227,19 +234,19 @@ let run_one_random () =
 
 ---
 
-## Rule 3: E-COMPLETE
+## Scheduler Rules: S-COMPLETE
 
 **Formal**:
 
-$$\frac{s.\Phi(id) = \text{Pending}(v', \rho', ks) \quad (v' \text{ is a value})}{\langle e, s \rangle \to_{\text{sched}} \langle e, s[id \mapsto \text{Completed}(v')] \ominus id \rangle}$$
+$$\frac{s.\Phi(id) = \text{Pending}(v', \rho') \quad (v' \text{ is a value})}{\langle e, s \rangle \to \langle e, s[id \mapsto \text{Completed}(v')] \ominus id \rangle}$$
 
-(E-COMPLETE)
+(S-COMPLETE)
 
 **Intuition**: Future $id$'s computation reached value $v'$. Status changes Pending $\to$ Completed.
 
 ---
 
-## E-COMPLETE: WeChat Analogy
+## S-COMPLETE: WeChat Analogy
 
 ```
 [Future #1's computation finishes]
@@ -254,7 +261,7 @@ $$\frac{s.\Phi(id) = \text{Pending}(v', \rho', ks) \quad (v' \text{ is a value})
 
 ---
 
-## E-COMPLETE: OCaml Code
+## S-COMPLETE: OCaml Code
 
 ```ocaml
 (* future.ml - Future completion *)
@@ -271,19 +278,19 @@ let rec value_to_int v k = match v with
 
 ---
 
-## Rule 4: E-RESOLVE (New!)
+## Scheduler Rules: S-RESOLVE
 
 **Formal**:
 
-$$\frac{s.\Phi(id) = \text{Dependent}(deps, f, ks) \quad \forall d \in deps.\ s.\Phi(d) = \text{Completed}(v_d)}{\langle e, s \rangle \to_{\text{sched}} \langle e, s[id \mapsto \text{Completed}(f([v_d]))] \rangle}$$
+$$\frac{s.\Phi(id) = \text{Dependent}(deps, f) \quad \forall d \in deps.\ s.\Phi(d) = \text{Completed}(v_d)}{\langle e, s \rangle \to \langle e, s[id \mapsto \text{Completed}(f([v_d]))] \rangle}$$
 
-(E-RESOLVE)
+(S-RESOLVE)
 
 **Intuition**: All dependencies completed $\Rightarrow$ resolve Dependent Future.
 
 ---
 
-## E-RESOLVE: WeChat Analogy
+## S-RESOLVE: WeChat Analogy
 
 ```
 [Future #3 depends on #1 and #2]
@@ -299,19 +306,19 @@ $$\frac{s.\Phi(id) = \text{Dependent}(deps, f, ks) \quad \forall d \in deps.\ s.
 
 ---
 
-## Rule 5: E-LIFT-OP
+## Main Rules: M-LIFT-OP
 
 **Formal**:
 
-$$\frac{id \text{ fresh} \quad v_1 = \text{Future}(id_1) \lor v_2 = \text{Future}(id_2)}{\langle v_1 \oplus v_2, s \rangle \to \langle \text{Future}(id), s[id \mapsto \text{Dependent}(deps, \oplus, [])] \rangle}$$
+$$\frac{id \text{ fresh} \quad v_1 = \text{Future}(id_1) \lor v_2 = \text{Future}(id_2)}{\langle v_1 \oplus v_2, s \rangle \to \langle \text{Future}(id), s[id \mapsto \text{Dependent}(deps, \oplus)] \rangle}$$
 
-where $deps = [id \mid v_i = \text{Future}(id)]$ \hfill (E-LIFT-OP)
+where $deps = [id \mid v_i = \text{Future}(id)]$ \hfill (M-LIFT-OP)
 
 **Intuition**: Operator detects Future operands, creates Dependent Future instead of blocking.
 
 ---
 
-## E-LIFT-OP: WeChat Analogy
+## M-LIFT-OP: WeChat Analogy
 
 ```
 [You]: "When Alice and Bob both finish, sum their results"
@@ -328,7 +335,7 @@ where $deps = [id \mid v_i = \text{Future}(id)]$ \hfill (E-LIFT-OP)
 
 ---
 
-## E-LIFT-OP: OCaml Code
+## M-LIFT-OP: OCaml Code
 
 ```ocaml
 (* eval.ml - simplified *)
@@ -345,52 +352,55 @@ let binary_op op v1 v2 k = match v1, v2 with
 
 ---
 
-## Rule 6: E-AWAIT (Main Program Queries)
+## Main Rules: M-AWAIT
 
 **Formal**:
 
-$$\frac{s.\Phi(id) = \text{Completed}(v)}{\langle \texttt{await}(id), s \rangle \to_{\text{main}} \langle v, s \rangle}$$ (E-AWAIT-READY)
+$$\frac{s.\Phi(id) = \text{Completed}(v)}{\langle \texttt{await}(id), s \rangle \to \langle v, s \rangle}$$ (M-AWAIT)
 
-$$\frac{s.\Phi(id) \neq \text{Completed}}{\langle \texttt{await}(id), s \rangle \to_{\text{main}} \langle \texttt{await}(id), s \rangle}$$ (E-AWAIT-SPIN)
+**Intuition**: When main needs a value and Future is completed, extract it.
 
-**Intuition**: Main checks status. If ready, get value. If not, **spin** — but scheduler can interleave!
+**If not completed?** The term `await(id)` is **stuck** — but S-SCHEDULE can still fire!
 
 ---
 
-## E-AWAIT-SPIN: Why It's OK (Progress)
+## Progress Property
 
-**Old concern**: E-AWAIT-SPIN looks like stuttering (no progress).
+**Theorem (Progress)**: A configuration $\langle e, s \rangle$ can step unless:
 
-**Resolution**: In interleaving semantics, **STEP-SCHED can fire concurrently**!
+1. $e$ is a value (done!), or
+2. $e = \texttt{await}(id)$ where $\Phi(id) \neq \text{Completed}$ **and** $Q = \emptyset$ (deadlock)
+
+**Key insight**: When `await(id)` is stuck, S-SCHEDULE can still fire (if $Q \neq \emptyset$)!
 
 ```
 Possible trace:
-  <await(#0), s>  ->_main  <await(#0), s>   (spin)
-  <await(#0), s>  ->_sched <await(#0), s'>  (#0 executes)
-  <await(#0), s'> ->_main  <100, s'>        (ready!)
+  <await(#0), s>  -- main stuck, but Q = {#0} --
+  <await(#0), s>  ->  <await(#0), s'>  (S-SCHEDULE fires)
+  <await(#0), s'> ->  <100, s'>        (M-AWAIT fires)
 ```
 
-**Progress**: If $Q \neq \emptyset$, system always has a step (via STEP-SCHED).
+**True concurrency**: Main stuck $\neq$ system stuck.
 
 ---
 
-## E-AWAIT: WeChat Analogy
+## M-AWAIT: WeChat Analogy
 
 ```
 [Main program evaluating: if (x > 0) then ... ]
 
 [Main]: "I need the actual value of x now"
-        "@ FutureTable: is #1 done?"
+        "@ FutureTable: give me #1's result"
 
-[If Completed]: "Yes, here's 100" -> continue with if(100 > 0)
-[If Pending]:   "Not yet" -> (but workers still computing!)
+[If Completed]: "Here's 100" -> continue with if(100 > 0)
+[If Pending]:   Main is stuck -- but scheduler keeps working!
 ```
 
-**Key**: Main **checks** but doesn't block the world. Workers continue concurrently.
+**Key**: Main **waits** for result. But scheduler rules can still fire concurrently.
 
 ---
 
-## E-AWAIT: OCaml Code
+## M-AWAIT: OCaml Code
 
 ```ocaml
 (* future.ml *)
@@ -412,19 +422,19 @@ let await id k =
 ## Rule Relations: Diamond Example
 
 ```ocaml
-let x = async (100) in    (* E-ASYNC: #0 Pending *)
-let left = x + 10 in      (* E-LIFT-OP: #1 Dependent [#0] *)
-let right = x + 20 in     (* E-LIFT-OP: #2 Dependent [#0] *)
-left + right              (* E-LIFT-OP: #3 Dependent [#1, #2] *)
+let x = async (100) in    (* M-ASYNC: #0 Pending *)
+let left = x + 10 in      (* M-LIFT-OP: #1 Dependent [#0] *)
+let right = x + 20 in     (* M-LIFT-OP: #2 Dependent [#0] *)
+left + right              (* M-LIFT-OP: #3 Dependent [#1, #2] *)
 (* When result is needed: main program AWAITS #3 *)
 ```
 
 **Dependency Graph**:
 
-- `#0` Pending (root) $\to$ executes via E-SCHEDULE
+- `#0` Pending (root) $\to$ executes via S-SCHEDULE
 - `#1`, `#2` Dependent on `#0`  
 - `#3` Dependent on `#1`, `#2`
-- **When main needs result**: E-AWAIT triggers resolution chain
+- **When main needs result**: M-AWAIT triggers resolution chain
 
 ---
 
@@ -432,16 +442,16 @@ left + right              (* E-LIFT-OP: #3 Dependent [#1, #2] *)
 
 | Step | Rule | State Change |
 |------|------|-------------|
-| 1 | E-ASYNC | $\Phi[\#0 \mapsto \text{Pending}(100)]$, $Q = \{\#0\}$ |
-| 2 | E-LIFT-OP | $\Phi[\#1 \mapsto \text{Dependent}([\#0], +10)]$ |
-| 3 | E-LIFT-OP | $\Phi[\#2 \mapsto \text{Dependent}([\#0], +20)]$ |
-| 4 | E-LIFT-OP | $\Phi[\#3 \mapsto \text{Dependent}([\#1,\#2], +)]$ |
-| 5 | E-SCHEDULE | Pick $\#0$ from $Q$, execute |
-| 6 | E-COMPLETE | $\Phi[\#0 \mapsto \text{Completed}(100)]$ |
-| 7 | **E-RESOLVE** | $\#1$ deps ready $\to$ $\Phi[\#1 \mapsto \text{Completed}(110)]$ |
-| 8 | **E-RESOLVE** | $\#2$ deps ready $\to$ $\Phi[\#2 \mapsto \text{Completed}(120)]$ |
-| 9 | **E-RESOLVE** | $\#3$ deps ready $\to$ $\Phi[\#3 \mapsto \text{Completed}(230)]$ |
-| 10 | E-AWAIT | Main queries $\#3$ $\to$ returns 230 |
+| 1 | M-ASYNC | $\Phi[\#0 \mapsto \text{Pending}(100)]$, $Q = \{\#0\}$ |
+| 2 | M-LIFT-OP | $\Phi[\#1 \mapsto \text{Dependent}([\#0], +10)]$ |
+| 3 | M-LIFT-OP | $\Phi[\#2 \mapsto \text{Dependent}([\#0], +20)]$ |
+| 4 | M-LIFT-OP | $\Phi[\#3 \mapsto \text{Dependent}([\#1,\#2], +)]$ |
+| 5 | S-SCHEDULE | Pick $\#0$ from $Q$, execute |
+| 6 | S-COMPLETE | $\Phi[\#0 \mapsto \text{Completed}(100)]$ |
+| 7 | **S-RESOLVE** | $\#1$ deps ready $\to$ $\Phi[\#1 \mapsto \text{Completed}(110)]$ |
+| 8 | **S-RESOLVE** | $\#2$ deps ready $\to$ $\Phi[\#2 \mapsto \text{Completed}(120)]$ |
+| 9 | **S-RESOLVE** | $\#3$ deps ready $\to$ $\Phi[\#3 \mapsto \text{Completed}(230)]$ |
+| 10 | M-AWAIT | Main queries $\#3$ $\to$ returns 230 |
 
 ---
 
@@ -449,10 +459,10 @@ left + right              (* E-LIFT-OP: #3 Dependent [#1, #2] *)
 
 | Concept | Aeff | Sub_Async |
 |---------|------|-----------|
-| Async creation | $\uparrow op\ V.M$ (Signal) | `async e` $\to$ E-ASYNC |
+| Async creation | $\uparrow op\ V.M$ (Signal) | `async e` $\to$ M-ASYNC |
 | Parallelism | $P \parallel Q$ (explicit syntax) | $Q$ (implicit queue) |
-| Await | `await p as x in M` (explicit) | E-AWAIT (implicit, when needed) |
-| Completion | $\downarrow op\ V.M$ (Interrupt) | E-COMPLETE (state change) |
+| Await | `await p as x in M` (explicit) | M-AWAIT (implicit, when needed) |
+| Completion | $\downarrow op\ V.M$ (Interrupt) | S-COMPLETE (state change) |
 | Handler | `with H handle M` | Implicit in $\Phi$ |
 
 ---
@@ -480,10 +490,10 @@ x + y
 Parallelism emerges from:
 
 1. Multiple Futures in $Q$ (implicit $\parallel$)
-2. E-SCHEDULE chooses non-deterministically
-3. E-AWAIT pulls results, triggering resolution chain
+2. S-SCHEDULE chooses non-deterministically
+3. M-AWAIT pulls results, triggering resolution chain
 
-**Formalization**: 5 core rules.
+**Formalization**: 6 core rules.
 
 ---
 
@@ -492,9 +502,9 @@ Parallelism emerges from:
 | Aeff | Sub_Async |
 |------|-----------|
 | $P \parallel Q$ | Flattened in $Q$ |
-| $\downarrow op\ V$ (interrupt) | continuation list `ks` |
+| $\downarrow op\ V$ (interrupt) | Polling via M-AWAIT |
 | Handler matching | Pattern match on status |
-| Process scheduling rules | Single E-SCHEDULE |
+| Process scheduling rules | Single S-SCHEDULE |
 
 **Trade-off**: Less expressive (no dynamic interrupt), but simpler semantics.
 
@@ -502,18 +512,21 @@ Parallelism emerges from:
 
 ## Summary
 
-**Interleaving Semantics** with **6 Core Rules**:
+**Non-deterministic Semantics** with **6 Core Rules**:
 
-1. **E-ASYNC**: Create Future, add to $Q$
-2. **E-SCHEDULE**: Non-deterministically execute a Future (any time!)
-3. **E-COMPLETE**: Pending $\to$ Completed when done
-4. **E-RESOLVE**: Dependent $\to$ Completed when deps ready
-5. **E-LIFT-OP**: Operator creates Dependent Future
-6. **E-AWAIT**: Main checks; spins if not ready (but scheduler interleaves)
+**Main rules** (M-*): expression $e$ steps
 
-**Progress**: If $Q \neq \emptyset \lor e$ can step, system progresses.
+- **M-ASYNC**: Create Future, add to $Q$
+- **M-LIFT-OP**: Operator creates Dependent Future
+- **M-AWAIT**: Extract value when completed (stuck if not ready)
 
-**vs Aeff**: No explicit $\parallel$, no interrupt — concurrency via interleaving
+**Scheduler rules** (S-*): $e$ unchanged, only state $s$ changes
+
+- **S-SCHEDULE**: Non-deterministically execute a Future
+- **S-COMPLETE**: Pending $\to$ Completed when done
+- **S-RESOLVE**: Dependent $\to$ Completed when deps ready
+
+**Progress**: Stuck only when awaiting incomplete Future with $Q = \emptyset$.
 
 ---
 
