@@ -16,12 +16,14 @@ header-includes:
 
 1. **Language Motivation**: Space/Time Decoupling (WeChat Analogy)
 2. **Formalization Motivation**: Externalize runtime state
-3. **Configuration**: $\langle e, s \rangle$ where $s = (\rho, \Phi, Q)$
-4. **Non-deterministic Semantics**: True concurrency via rule choice
-5. **6 Core Rules**:
+3. **Abstract Syntax**: Types, expressions, values
+4. **Configuration**: $\langle e, s \rangle$ where $s = (\rho, \Phi, Q)$
+5. **Future Status**: Exactly 3 states (Pending, Completed, Dependent)
+6. **Non-deterministic Semantics**: True concurrency via rule choice
+7. **6 Core Rules**:
    - Main rules (M-*): M-ASYNC, M-LIFT-OP, M-AWAIT
    - Scheduler rules (S-*): S-SCHEDULE, S-COMPLETE, S-RESOLVE
-6. **Comparison with Aeff**
+8. **Comparison with Aeff**
 
 ---
 
@@ -72,21 +74,54 @@ Scheduler.schedule (fun () -> ...)   (* Where is this? *)
 
 ---
 
+## Abstract Syntax (1/2)
+
+**Expressions**:
+$$e ::= x \mid n \mid b \mid e_1 \mathbin{\mathit{op_s}} e_2 \mid e_1 \mathbin{\mathit{op_b}} e_2 \mid \texttt{if } e_1 \texttt{ then } e_2 \texttt{ else } e_3$$
+$$\mid \texttt{fun } x \texttt{ is } e \mid e_1\ e_2 \mid \texttt{let } x = e_1 \texttt{ in } e_2 \mid \texttt{async } e$$
+
+**Operators**: $\mathit{op_s} \in \{+, -, *, /, <, =\}$ (strict); \quad $\mathit{op_b} \in \{\land, \lor\}$ (short-circuit)
+
+**Values**:
+$$v ::= n \mid b \mid \langle x, e, \rho \rangle \mid \texttt{Future}(id)$$
+
+**Environments**:
+$$\rho ::= \emptyset \mid \rho[x \mapsto v]$$
+
+---
+
+## Abstract Syntax (2/2)
+
+**Lists**:
+$$\textit{ids} ::= [\,] \mid id :: \textit{ids} \qquad \textit{vs} ::= [\,] \mid v :: \textit{vs}$$
+
+**Auxiliary**:
+$$\text{collect}(\Phi, [\,]) = [\,]$$
+$$\text{collect}(\Phi, id :: \textit{ids}) = v :: \text{collect}(\Phi, \textit{ids}) \quad \text{if } \Phi(id) = \texttt{Completed}(v)$$
+
+**Expression evaluation** (standard small-step, omitted):
+$$(e, \rho) \to_1 (e', \rho')$$
+
+**Types**:
+$$\tau ::= \texttt{int} \mid \texttt{bool} \mid \tau_1 \to \tau_2 \mid \texttt{Future int}$$
+
+---
+
 ## Configuration
 
 $$\langle e, s \rangle \quad \text{where } s = (\rho, \Phi, Q)$$
 
-| Component | Meaning | OCaml Implementation |
-|-----------|---------|---------------------|
-| $\rho$ | Environment | `env : (string * value) list` |
-| $\Phi$ | Future table | `Hashtbl : id -> status` |
-| $Q$ | Pending Future ids | `Scheduler.queue` |
+| Component | Meaning | Accessor |
+|-----------|---------|----------|
+| $\rho$ | Environment: $x \mapsto v$ | $s.\rho$ |
+| $\Phi$ | Future table: $id \mapsto \sigma$ | $s.\Phi$ |
+| $Q$ | Pending queue: set of $id$ | $s.Q$ |
 
 **Update notation**:
 
-- $s[id \mapsto v]$ — update $\Phi(id) = v$ (modify Future table)
-- $s \oplus id$ — $Q := Q \cup \{id\}$ (add Future to queue)
-- $s \ominus id$ — $Q := Q \backslash \{id\}$ (remove Future from queue)
+- $s[id \mapsto \sigma]$ — update $\Phi(id) := \sigma$
+- $s \oplus id$ — add $id$ to $Q$
+- $s \ominus id$ — remove $id$ from $Q$
 
 <!-- These are **shorthand** for state changes. Instead of writing $(ρ, Φ', Q')$ every time, we write operations on $s$.
 
@@ -96,17 +131,33 @@ $$\langle e, s \rangle \quad \text{where } s = (\rho, \Phi, Q)$$
 
 ## Future Status (State Machine)
 
-```ocaml
-status ::= Pending(e, rho)       (* Scheduled, not complete *)
-         | Completed(v)          (* Done *)
-         | Dependent(deps, f)    (* Waiting for dependencies *)
-```
+**Exactly 3 states** (exhaustive):
 
-**Transitions**:
+$$\sigma ::= \texttt{Pending}(e, \rho) \mid \texttt{Completed}(v) \mid \texttt{Dependent}(\textit{ids}, f)$$
 
-- $\text{Pending} \xrightarrow{\text{S-SCHEDULE + S-COMPLETE}} \text{Completed}$
-- $\text{Dependent} \xrightarrow{\text{S-RESOLVE}} \text{Completed}$
-- `async e` creates Pending, M-AWAIT pulls value
+where $f : \textit{vs} \to v$ is a combine function taking a value list.
+
+| Status | Meaning | In $Q$? |
+|--------|---------|---------|
+| $\texttt{Pending}(e, \rho)$ | Computation $e$ with environment $\rho$ | Yes |
+| $\texttt{Completed}(v)$ | Done, holds value $v$ | No |
+| $\texttt{Dependent}(\textit{ids}, f)$ | Waiting for all $id \in \textit{ids}$, then apply $f$ | No |
+
+---
+
+## Future Status Transitions
+
+**State diagram**:
+
+- $\texttt{Pending} \xrightarrow{\text{S-SCHEDULE + S-COMPLETE}} \texttt{Completed}$
+- $\texttt{Dependent} \xrightarrow{\text{S-RESOLVE}} \texttt{Completed}$
+
+**Creation**:
+
+- `async e` $\to$ creates $\texttt{Pending}(e, \rho)$
+- `Future(id) op_s v` $\to$ creates $\texttt{Dependent}([id], f)$
+
+**Extraction**: M-AWAIT pulls value from $\texttt{Completed}$
 
 ---
 
@@ -150,7 +201,8 @@ status ::= Pending(e, rho)       (* Scheduled, not complete *)
 
 **Formal**:
 
-$$\frac{id \text{ fresh}}{\langle \texttt{async } e, s \rangle \to \langle \text{Future}(id), s[id \mapsto \text{Pending}(e, s.\rho)] \oplus id \rangle} \text{ (M-ASYNC)}$$
+$$\frac{id \notin \text{dom}(s.\Phi)}{\langle \texttt{async } e, s \rangle \to \langle \texttt{Future}(id), (s \oplus id)[id \mapsto \texttt{Pending}(e, s.\rho)] \rangle}$$
+\hfill (M-ASYNC)
 
 **Intuition**: `async e` immediately returns `Future(id)`, adds $id$ to scheduler queue $Q$.
 
@@ -192,11 +244,13 @@ let create e env =
 
 **Formal**:
 
-$$\frac{id \in s.Q \quad s.\Phi(id) = \text{Pending}(e', \rho')}{\langle e, s \rangle \to \langle e, s' \rangle} \text{ (S-SCHEDULE)}$$
+$$\frac{id \in s.Q \quad s.\Phi(id) = \texttt{Pending}(e', \rho') \quad (e', \rho') \to_1 (e'', \rho'')}{\langle e, s \rangle \to \langle e, s[id \mapsto \texttt{Pending}(e'', \rho'')] \rangle}$$
 
-where $s'$ reflects one step of evaluating $e'$ in environment $\rho'$.
+\hfill (S-SCHEDULE)
 
-**Intuition**: **At any time**, non-deterministically pick a pending Future from $Q$ to execute. Main expression $e$ unchanged.
+where $\to_1$ is the single-step evaluation relation for expressions.
+
+**Intuition**: Pick a pending Future from $Q$, execute one step, update $\Phi$. Main expression $e$ unchanged.
 
 ---
 
@@ -238,11 +292,11 @@ let run_one_random () =
 
 **Formal**:
 
-$$\frac{s.\Phi(id) = \text{Pending}(v', \rho') \quad (v' \text{ is a value})}{\langle e, s \rangle \to \langle e, s[id \mapsto \text{Completed}(v')] \ominus id \rangle}$$
+$$\frac{id \in s.Q \quad s.\Phi(id) = \texttt{Pending}(v, \rho)}{\langle e, s \rangle \to \langle e, (s \ominus id)[id \mapsto \texttt{Completed}(v)] \rangle}$$
 
-(S-COMPLETE)
+\hfill (S-COMPLETE)
 
-**Intuition**: Future $id$'s computation reached value $v'$. Status changes Pending $\to$ Completed.
+**Intuition**: Future $id$ finished (expression reduced to value). Remove from $Q$, mark Completed.
 
 ---
 
@@ -282,9 +336,9 @@ let rec value_to_int v k = match v with
 
 **Formal**:
 
-$$\frac{s.\Phi(id) = \text{Dependent}(deps, f) \quad \forall d \in deps.\ s.\Phi(d) = \text{Completed}(v_d)}{\langle e, s \rangle \to \langle e, s[id \mapsto \text{Completed}(f([v_d]))] \rangle}$$
+$$\frac{s.\Phi(id) = \texttt{Dependent}(\textit{ids}, f) \quad \forall id' \in \textit{ids}.\, \exists v.\, s.\Phi(id') = \texttt{Completed}(v)}{\langle e, s \rangle \to \langle e, s[id \mapsto \texttt{Completed}(f(\text{collect}(s.\Phi, \textit{ids})))] \rangle}$$
 
-(S-RESOLVE)
+\hfill (S-RESOLVE)
 
 **Intuition**: All dependencies completed $\Rightarrow$ resolve Dependent Future.
 
@@ -308,13 +362,14 @@ $$\frac{s.\Phi(id) = \text{Dependent}(deps, f) \quad \forall d \in deps.\ s.\Phi
 
 ## Main Rules: M-LIFT-OP
 
-**Formal**:
+$$\frac{id \notin \text{dom}(s.\Phi)}{\langle \texttt{Future}(id_1) \mathbin{\mathit{op_s}} \texttt{Future}(id_2), s \rangle \to \langle \texttt{Future}(id), s[id \mapsto \texttt{Dependent}([id_1, id_2], f)] \rangle}$$
+where $f([v_1, v_2]) = v_1 \mathbin{\mathit{op_s}} v_2$. \hfill (M-LIFT-OP-FF)
 
-$$\frac{id \text{ fresh} \quad v_1 = \text{Future}(id_1) \lor v_2 = \text{Future}(id_2)}{\langle v_1 \oplus v_2, s \rangle \to \langle \text{Future}(id), s[id \mapsto \text{Dependent}(deps, \oplus)] \rangle}$$
+$$\frac{id \notin \text{dom}(s.\Phi)}{\langle \texttt{Future}(id_1) \mathbin{\mathit{op_s}} n, s \rangle \to \langle \texttt{Future}(id), s[id \mapsto \texttt{Dependent}([id_1], f)] \rangle}$$
+where $f([v_1]) = v_1 \mathbin{\mathit{op_s}} n$. \hfill (M-LIFT-OP-FV)
 
-where $deps = [id \mid v_i = \text{Future}(id)]$ \hfill (M-LIFT-OP)
-
-**Intuition**: Operator detects Future operands, creates Dependent Future instead of blocking.
+$$\frac{id \notin \text{dom}(s.\Phi)}{\langle n \mathbin{\mathit{op_s}} \texttt{Future}(id_2), s \rangle \to \langle \texttt{Future}(id), s[id \mapsto \texttt{Dependent}([id_2], f)] \rangle}$$
+where $f([v_2]) = n \mathbin{\mathit{op_s}} v_2$. \hfill (M-LIFT-OP-VF)
 
 ---
 
@@ -369,13 +424,17 @@ let binary_op op v1 v2 k = match v1, v2 with
 
 ## Main Rules: M-AWAIT
 
-**Formal**:
+**Note**: `await` is not explicit syntax — triggered implicitly when **concrete value** needed.
 
-$$\frac{s.\Phi(id) = \text{Completed}(v)}{\langle \texttt{await}(id), s \rangle \to \langle v, s \rangle}$$ (M-AWAIT)
+**M-AWAIT-IF** (condition needs bool):
 
-**Intuition**: When main needs a value and Future is completed, extract it.
+$$\frac{s.\Phi(id) = \texttt{Completed}(v)}{\langle \texttt{if Future}(id) \texttt{ then } e_2 \texttt{ else } e_3, s \rangle \to \langle \texttt{if } v \texttt{ then } e_2 \texttt{ else } e_3, s \rangle}$$
 
-**If not completed?** The term `await(id)` is **stuck** — but S-SCHEDULE can still fire!
+**M-AWAIT-FINAL** (program result needs concrete value):
+
+$$\frac{s.\Phi(id) = \texttt{Completed}(v) \quad \texttt{Future}(id) \text{ is final expression}}{\langle \texttt{Future}(id), s \rangle \to \langle v, s \rangle}$$
+
+**If not completed?** The term is **stuck** — but S-SCHEDULE can still fire!
 
 ---
 
@@ -384,15 +443,15 @@ $$\frac{s.\Phi(id) = \text{Completed}(v)}{\langle \texttt{await}(id), s \rangle 
 **Theorem (Progress)**: A configuration $\langle e, s \rangle$ can step unless:
 
 1. $e$ is a value (done!), or
-2. $e = \texttt{await}(id)$ where $\Phi(id) \neq \text{Completed}$ **and** $Q = \emptyset$ (deadlock)
+2. Main needs concrete value from $\texttt{Future}(id)$ where $\Phi(id) \neq \texttt{Completed}$ **and** $Q = \emptyset$
 
-**Key insight**: When `await(id)` is stuck, S-SCHEDULE can still fire (if $Q \neq \emptyset$)!
+**Key insight**: When main is stuck on a Future, S-SCHEDULE can still fire (if $Q \neq \emptyset$)!
 
 ```
 Possible trace:
-  <await(#0), s>  -- main stuck, but Q = {#0} --
-  <await(#0), s>  ->  <await(#0), s'>  (S-SCHEDULE fires)
-  <await(#0), s'> ->  <100, s'>        (M-AWAIT fires)
+  <if Future(#0) then..., s>   -- main stuck, needs bool, Q = {#0}
+  <if Future(#0) then..., s>   ->  <..., s'>   (S-SCHEDULE fires)
+  <if Future(#0) then..., s'>  ->  <if true then..., s'>  (M-AWAIT)
 ```
 
 **True concurrency**: Main stuck $\neq$ system stuck.
@@ -403,6 +462,7 @@ Possible trace:
 
 ```
 [Main program evaluating: if (x > 0) then ... ]
+[x is Future(#1)]
 
 [Main]: "I need the actual value of x now"
         "@ FutureTable: give me #1's result"
@@ -418,19 +478,19 @@ Possible trace:
 ## M-AWAIT: OCaml Code
 
 ```ocaml
-(* future.ml *)
-let await id k =
-  match Hashtbl.find_opt table id with
-  | Some (Completed (v, _)) -> k v    (* Ready! Return value *)
-  | Some (Pending (_, _, ks)) ->
-      (* Not ready: register k, keep scheduling *)
-      Hashtbl.replace table id (Pending (e, env, k::ks))
-  | Some (Dependent dep) ->
-      (* Check if deps all done, resolve if so *)
-      check_and_resolve_dependent id; ...
+(* eval.ml - implicit await when concrete value needed *)
+let rec value_to_int v k = match v with
+  | Int n -> k n
+  | Future id -> Future.await id (fun v' -> value_to_int v' k)
+  | _ -> runtime_error "integer expected"
+
+(* Example: if-then-else needs bool, triggers implicit await *)
+| If (e1, e2, e3) ->
+    eval_cps env e1 (fun v1 ->
+      value_to_bool v1 (fun b -> ...))  (* await if v1 is Future *)
 ```
 
-**Key**: `await` is called by main program when it **needs** the value.
+**Key**: `await` triggered implicitly by evaluation contexts needing concrete values.
 
 ---
 
@@ -441,7 +501,7 @@ let x = async (100) in    (* M-ASYNC: #0 Pending *)
 let left = x + 10 in      (* M-LIFT-OP: #1 Dependent [#0] *)
 let right = x + 20 in     (* M-LIFT-OP: #2 Dependent [#0] *)
 left + right              (* M-LIFT-OP: #3 Dependent [#1, #2] *)
-(* When result is needed: main program AWAITS #3 *)
+(* When result is needed: implicit await on #3 *)
 ```
 
 **Dependency Graph**:
@@ -457,16 +517,16 @@ left + right              (* M-LIFT-OP: #3 Dependent [#1, #2] *)
 
 | Step | Rule | State Change |
 |------|------|-------------|
-| 1 | M-ASYNC | $\Phi[\#0 \mapsto \text{Pending}(100)]$, $Q = \{\#0\}$ |
-| 2 | M-LIFT-OP | $\Phi[\#1 \mapsto \text{Dependent}([\#0], +10)]$ |
-| 3 | M-LIFT-OP | $\Phi[\#2 \mapsto \text{Dependent}([\#0], +20)]$ |
-| 4 | M-LIFT-OP | $\Phi[\#3 \mapsto \text{Dependent}([\#1,\#2], +)]$ |
+| 1 | M-ASYNC | $\Phi[\#0 \mapsto \texttt{Pending}(100, \rho)]$, $Q = \{\#0\}$ |
+| 2 | M-LIFT-OP | $\Phi[\#1 \mapsto \texttt{Dependent}([\#0], \lambda v.\, v+10)]$ |
+| 3 | M-LIFT-OP | $\Phi[\#2 \mapsto \texttt{Dependent}([\#0], \lambda v.\, v+20)]$ |
+| 4 | M-LIFT-OP | $\Phi[\#3 \mapsto \texttt{Dependent}([\#1,\#2], \lambda (a,b).\, a+b)]$ |
 | 5 | S-SCHEDULE | Pick $\#0$ from $Q$, execute |
-| 6 | S-COMPLETE | $\Phi[\#0 \mapsto \text{Completed}(100)]$ |
-| 7 | **S-RESOLVE** | $\#1$ deps ready $\to$ $\Phi[\#1 \mapsto \text{Completed}(110)]$ |
-| 8 | **S-RESOLVE** | $\#2$ deps ready $\to$ $\Phi[\#2 \mapsto \text{Completed}(120)]$ |
-| 9 | **S-RESOLVE** | $\#3$ deps ready $\to$ $\Phi[\#3 \mapsto \text{Completed}(230)]$ |
-| 10 | M-AWAIT | Main queries $\#3$ $\to$ returns 230 |
+| 6 | S-COMPLETE | $\Phi[\#0 \mapsto \texttt{Completed}(100)]$ |
+| 7 | S-RESOLVE | $\Phi[\#1 \mapsto \texttt{Completed}(110)]$ |
+| 8 | S-RESOLVE | $\Phi[\#2 \mapsto \texttt{Completed}(120)]$ |
+| 9 | S-RESOLVE | $\Phi[\#3 \mapsto \texttt{Completed}(230)]$ |
+| 10 | M-AWAIT | Extract $230$ from $\#3$ |
 
 ---
 
@@ -539,7 +599,7 @@ Parallelism emerges from:
 
 - **S-SCHEDULE**: Non-deterministically execute a Future
 - **S-COMPLETE**: Pending $\to$ Completed when done
-- **S-RESOLVE**: Dependent $\to$ Completed when deps ready
+- **S-RESOLVE**: Dependent $\to$ Completed when all dependencies ready
 
 **Progress**: Stuck only when awaiting incomplete Future with $Q = \emptyset$.
 
