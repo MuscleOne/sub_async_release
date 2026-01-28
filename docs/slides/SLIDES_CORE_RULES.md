@@ -1,6 +1,6 @@
 ---
 title: "Sub_Async: Operational Semantics"
-subtitle: "5 Core Rules for Implicit Async Coordination"
+subtitle: "Interleaving Semantics for Implicit Async Coordination"
 author: "Chen Tianhao"
 date: "January 2026"
 classoption: "aspectratio=169"
@@ -10,13 +10,16 @@ header-includes:
   - \usepackage{amssymb}
 ---
 
+<!-- cd /mnt/c/Users/p2215292/Desktop/comptuting/Formal\ Semantics\ of\ Programming\ Languages/sub_async_release/docs/slides && pandoc SLIDES_CORE_RULES.md -t beamer --pdf-engine=xelatex -o SLIDES_CORE_RULES.pdf -->
+
 ## Outline
 
 1. **Language Motivation**: Space/Time Decoupling (WeChat Analogy)
 2. **Formalization Motivation**: Externalize runtime state
 3. **Configuration**: $\langle e, s \rangle$ where $s = (\rho, \Phi, Q)$
-4. **5 Core Rules**: E-ASYNC, E-SCHEDULE, E-COMPLETE, E-LIFT-OP, E-AWAIT
-5. **Comparison with Aeff**
+4. **Interleaving Semantics**: True concurrency via non-determinism
+5. **6 Core Rules**: E-ASYNC, E-SCHEDULE, E-COMPLETE, E-RESOLVE, E-LIFT-OP, E-AWAIT
+6. **Comparison with Aeff**
 
 ---
 
@@ -99,8 +102,40 @@ status ::= Pending(e, rho, ks)     (* Scheduled, not complete *)
 **Transitions**:
 
 - $\text{Pending} \xrightarrow{\text{E-SCHEDULE + E-COMPLETE}} \text{Completed}$
-- $\text{Dependent} \xrightarrow{\text{E-AWAIT triggers resolution}} \text{Completed}$
+- $\text{Dependent} \xrightarrow{\text{E-RESOLVE}} \text{Completed}$
 - `async e` creates Pending, E-AWAIT pulls value
+
+---
+
+## Interleaving Semantics (True Concurrency)
+
+**Key insight**: Non-deterministic scheduling = all possible interleavings
+
+$$\frac{\langle e, s \rangle \to_{\text{main}} \langle e', s' \rangle}{\langle e, s \rangle \to \langle e', s' \rangle} \text{ (STEP-MAIN)}$$
+
+$$\frac{s.Q \neq \emptyset \quad \langle e, s \rangle \to_{\text{sched}} \langle e, s' \rangle}{\langle e, s \rangle \to \langle e, s' \rangle} \text{ (STEP-SCHED)}$$
+
+**No priority** between rules $\Rightarrow$ true concurrency!
+
+---
+
+## WeChat Analogy: True Concurrency
+
+```
++------------------------------------------------+
+|  Everyone online simultaneously                |
+|                                                |
+|  [You]    [MemberA]  [MemberB]  [MemberC]      |
+|    |         |          |          |           |
+|    +--post-->|          |          |           |
+|    |         +--------->|          |  (any     |
+|    |<--------+          |<---------+   order!) |
+|                                                |
+|  Who acts next? -> Non-deterministic!          |
++------------------------------------------------+
+```
+
+**Not** "post and wait" — **all act concurrently**
 
 ---
 
@@ -150,9 +185,11 @@ let create e env =
 
 **Formal**:
 
-$$\frac{id \in s.Q \quad s.\Phi(id) = \text{Pending}(e', \rho', ks)}{\langle v, s \rangle \to \langle v, s' \rangle} \text{ (E-SCHEDULE)}$$
+$$\frac{id \in s.Q \quad s.\Phi(id) = \text{Pending}(e', \rho', ks)}{\langle e, s \rangle \to_{\text{sched}} \langle e, s' \rangle} \text{ (E-SCHEDULE)}$$
 
-**Intuition**: When configuration is $\langle v, s \rangle$ (expression is a value), non-deterministically pick a pending Future from $Q$ to execute.
+where $s'$ reflects one step of evaluating $e'$ in environment $\rho'$.
+
+**Intuition**: **At any time**, non-deterministically pick a pending Future from $Q$ to execute. Main expression $e$ unchanged.
 
 ---
 
@@ -194,11 +231,11 @@ let run_one_random () =
 
 **Formal**:
 
-$$\frac{s.\Phi(id) = \text{Pending}(v', \rho', ks) \quad (v' \text{ is a value})}{\langle e, s \rangle \to \langle e, s[id \mapsto \text{Completed}(v')] \ominus id \rangle}$$
+$$\frac{s.\Phi(id) = \text{Pending}(v', \rho', ks) \quad (v' \text{ is a value})}{\langle e, s \rangle \to_{\text{sched}} \langle e, s[id \mapsto \text{Completed}(v')] \ominus id \rangle}$$
 
 (E-COMPLETE)
 
-**Intuition**: Scheduled computation for Future $id$ evaluates to value $v'$. Status changes Pending $\to$ Completed. **No active notification** — waiters poll later.
+**Intuition**: Future $id$'s computation reached value $v'$. Status changes Pending $\to$ Completed.
 
 ---
 
@@ -234,7 +271,35 @@ let rec value_to_int v k = match v with
 
 ---
 
-## Rule 4: E-LIFT-OP
+## Rule 4: E-RESOLVE (New!)
+
+**Formal**:
+
+$$\frac{s.\Phi(id) = \text{Dependent}(deps, f, ks) \quad \forall d \in deps.\ s.\Phi(d) = \text{Completed}(v_d)}{\langle e, s \rangle \to_{\text{sched}} \langle e, s[id \mapsto \text{Completed}(f([v_d]))] \rangle}$$
+
+(E-RESOLVE)
+
+**Intuition**: All dependencies completed $\Rightarrow$ resolve Dependent Future.
+
+---
+
+## E-RESOLVE: WeChat Analogy
+
+```
+[Future #3 depends on #1 and #2]
+
+[System checks]: Is #1 done? Yes (100)
+                 Is #2 done? Yes (200)
+                 
+[System]: All deps ready! Compute: 100 + 200 = 300
+          Future #3 status -> Completed(300)
+```
+
+**Key**: Automatic resolution when dependencies complete.
+
+---
+
+## Rule 5: E-LIFT-OP
 
 **Formal**:
 
@@ -280,15 +345,32 @@ let binary_op op v1 v2 k = match v1, v2 with
 
 ---
 
-## Rule 5: E-AWAIT (Main Program Queries)
+## Rule 6: E-AWAIT (Main Program Queries)
 
 **Formal**:
 
-$$\frac{s.\Phi(id) = \text{Completed}(v)}{\langle \texttt{await}(id), s \rangle \to \langle v, s \rangle}$$ (E-AWAIT-READY)
+$$\frac{s.\Phi(id) = \text{Completed}(v)}{\langle \texttt{await}(id), s \rangle \to_{\text{main}} \langle v, s \rangle}$$ (E-AWAIT-READY)
 
-$$\frac{s.\Phi(id) = \text{Pending/Dependent}}{\langle \texttt{await}(id), s \rangle \to \langle \texttt{await}(id), s \rangle}$$ (E-AWAIT-WAIT)
+$$\frac{s.\Phi(id) \neq \text{Completed}}{\langle \texttt{await}(id), s \rangle \to_{\text{main}} \langle \texttt{await}(id), s \rangle}$$ (E-AWAIT-SPIN)
 
-**Intuition**: Main program **actively queries** when it needs the value. If ready, get it; if not, keep polling.
+**Intuition**: Main checks status. If ready, get value. If not, **spin** — but scheduler can interleave!
+
+---
+
+## E-AWAIT-SPIN: Why It's OK (Progress)
+
+**Old concern**: E-AWAIT-SPIN looks like stuttering (no progress).
+
+**Resolution**: In interleaving semantics, **STEP-SCHED can fire concurrently**!
+
+```
+Possible trace:
+  <await(#0), s>  ->_main  <await(#0), s>   (spin)
+  <await(#0), s>  ->_sched <await(#0), s'>  (#0 executes)
+  <await(#0), s'> ->_main  <100, s'>        (ready!)
+```
+
+**Progress**: If $Q \neq \emptyset$, system always has a step (via STEP-SCHED).
 
 ---
 
@@ -301,10 +383,10 @@ $$\frac{s.\Phi(id) = \text{Pending/Dependent}}{\langle \texttt{await}(id), s \ra
         "@ FutureTable: is #1 done?"
 
 [If Completed]: "Yes, here's 100" -> continue with if(100 > 0)
-[If Pending]:   "Not yet" -> run scheduler, ask again later
+[If Pending]:   "Not yet" -> (but workers still computing!)
 ```
 
-**Key**: Main program **pulls** when it needs concrete value (e.g., `if` condition).
+**Key**: Main **checks** but doesn't block the world. Workers continue concurrently.
 
 ---
 
@@ -356,9 +438,10 @@ left + right              (* E-LIFT-OP: #3 Dependent [#1, #2] *)
 | 4 | E-LIFT-OP | $\Phi[\#3 \mapsto \text{Dependent}([\#1,\#2], +)]$ |
 | 5 | E-SCHEDULE | Pick $\#0$ from $Q$, execute |
 | 6 | E-COMPLETE | $\Phi[\#0 \mapsto \text{Completed}(100)]$ |
-| 7 | **E-AWAIT** | Main needs result, queries $\#3$ |
-| 8 | (resolve) | $\#3$ checks deps $\to$ $\#1, \#2$ check $\#0$ $\to$ resolve chain |
-| 9 | (result) | $\#1=110, \#2=120, \#3=230$ |
+| 7 | **E-RESOLVE** | $\#1$ deps ready $\to$ $\Phi[\#1 \mapsto \text{Completed}(110)]$ |
+| 8 | **E-RESOLVE** | $\#2$ deps ready $\to$ $\Phi[\#2 \mapsto \text{Completed}(120)]$ |
+| 9 | **E-RESOLVE** | $\#3$ deps ready $\to$ $\Phi[\#3 \mapsto \text{Completed}(230)]$ |
+| 10 | E-AWAIT | Main queries $\#3$ $\to$ returns 230 |
 
 ---
 
@@ -419,15 +502,18 @@ Parallelism emerges from:
 
 ## Summary
 
-**5 Core Rules**:
+**Interleaving Semantics** with **6 Core Rules**:
 
 1. **E-ASYNC**: Create Future, add to $Q$
-2. **E-SCHEDULE**: Non-deterministically execute a Future's computation
-3. **E-COMPLETE**: Future's computation done, state $\to$ Completed
-4. **E-LIFT-OP**: Operator creates Dependent Future
-5. **E-AWAIT**: Main program **pulls** value when needed
+2. **E-SCHEDULE**: Non-deterministically execute a Future (any time!)
+3. **E-COMPLETE**: Pending $\to$ Completed when done
+4. **E-RESOLVE**: Dependent $\to$ Completed when deps ready
+5. **E-LIFT-OP**: Operator creates Dependent Future
+6. **E-AWAIT**: Main checks; spins if not ready (but scheduler interleaves)
 
-**vs Aeff**: No explicit $\parallel$, no interrupt $\downarrow op$ — simpler semantics
+**Progress**: If $Q \neq \emptyset \lor e$ can step, system progresses.
+
+**vs Aeff**: No explicit $\parallel$, no interrupt — concurrency via interleaving
 
 ---
 
