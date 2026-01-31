@@ -73,22 +73,27 @@ $$v ::= n \mid b \mid \langle x, e, \rho \rangle \mid \texttt{Future}(id)$$
 **Future Status** (runtime states):
 $$\sigma ::= \texttt{Pending}(e, \rho) \mid \texttt{Completed}(v) \mid \texttt{Dependent}(\overline{id}, f)$$
 
-*Note: $\overline{id}$ denotes a list of Future ids; $f$ is a combine function.*
+*Note: $\overline{id}$ denotes a list $[id_1, \ldots, id_n]$; $f : [\text{Val}] \to \text{Val}$ is a combine function.*
 
 ---
 
 ## Auxiliary Definitions
 
+**List notation** (standard):
+$$[] \quad \text{(empty list)} \qquad x :: xs \quad \text{(cons)} \qquad xs \mathbin{+\!\!+} ys \quad \text{(concatenation)}$$
+$$|xs| \quad \text{(length)} \qquad [x_1, \ldots, x_n] \triangleq x_1 :: \cdots :: x_n :: []$$
+
 **Semantic domains**:
 $$\rho \in \text{Env} = \text{Var} \rightharpoonup \text{Val}$$
-$$\Phi \in \text{FutureTable} = \text{Id} \rightharpoonup \text{Status}$$
-$$Q \in \mathcal{P}(\text{Id})$$
+$$\Phi \in \text{FutureTable} = [(\text{Id} \times \text{Status})] \quad \text{(association list)}$$
+$$Q \in \text{TaskQueue} = [\text{Id}]$$
 
 **Operations**:
-$$\text{dom}(\Phi) \triangleq \{id \mid \exists \sigma.\ \Phi(id) = \sigma\}$$
-$$\text{fresh}(\Phi) \triangleq \text{choose } id \text{ s.t. } id \notin \text{dom}(\Phi)$$
-$$\text{collect}(\Phi, [id_1, \ldots, id_n]) \triangleq [v_1, \ldots, v_n]$$
-$$\quad \text{where } \Phi(id_i) = \texttt{Completed}(v_i) \text{ for all } i$$
+$$\text{fresh}(\Phi) \triangleq |\Phi| \quad \text{(sequential allocation: 0, 1, 2, ...)}$$
+$$\text{lookup}([], id) \triangleq \bot \qquad \text{lookup}((id', \sigma) :: \Phi, id) \triangleq \begin{cases} \sigma & \text{if } id = id' \\ \text{lookup}(\Phi, id) & \text{otherwise} \end{cases}$$
+$$\text{collect}(\Phi, [id_1, \ldots, id_n]) \triangleq [v_1, \ldots, v_n] \text{ where } \text{lookup}(\Phi, id_i) = \texttt{Completed}(v_i)$$
+
+*$\text{collect}$ is partial: defined only when all $id_i$ are Completed.*
 
 ---
 
@@ -96,20 +101,18 @@ $$\quad \text{where } \Phi(id_i) = \texttt{Completed}(v_i) \text{ for all } i$$
 
 $$\langle e, s \rangle \quad \text{where } s = (\rho, \Phi, Q)$$
 
-| Component | Type | Meaning |
-|-----------|------|---------|
-| $e$ | $\text{Expr}$ | Current expression |
-| $\rho$ | $\text{Var} \rightharpoonup v$ | Environment |
-| $\Phi$ | $\text{Id} \rightharpoonup \sigma$ | Future table |
-| $Q$ | $\mathcal{P}(\text{Id})$ | Pending task set |
+| Component | Meaning |
+|-----------|---------|
+| $e$ | Current expression |
+| $\rho$ | Environment (binds variables to values) |
+| $\Phi$ | Future table (maps ids to status) |
+| $Q$ | Pending task set |
 
-**Shorthand for state updates**:
-$$s[id \mapsto \sigma] \triangleq (\rho, \Phi[id \mapsto \sigma], Q)$$
-$$s \oplus id \triangleq (\rho, \Phi, Q \cup \{id\}) \qquad s \ominus id \triangleq (\rho, \Phi, Q \setminus \{id\})$$
+**Shorthand for state updates** (prepend semantics):
+$$s[id \mapsto \sigma] \triangleq (\rho, (id, \sigma) :: \Phi, Q) \quad \text{(shadows previous entries)}$$
+$$s \oplus id \triangleq (\rho, \Phi, id :: Q) \qquad s \ominus id \triangleq (\rho, \Phi, \text{filter}(\neq id, Q))$$
 
-**Auxiliary**:
-$\text{fresh}(s.\Phi) \triangleq$ some $id \notin \text{dom}(s.\Phi)$;  
-$\text{collect}(s.\Phi, \overline{id}) \triangleq [v_1, \ldots, v_n]$ where $s.\Phi(id_i) = \texttt{Completed}(v_i)$
+*We write $s.\Phi$, $s.\rho$, $s.Q$ for projections. $\text{lookup}$ returns first match (newest).*
 
 ---
 
@@ -121,9 +124,7 @@ $\text{collect}(s.\Phi, \overline{id}) \triangleq [v_1, \ldots, v_n]$ where $s.\
 | $\texttt{Dependent}(\overline{id}, f)$ | M-LIFT-OP | $\texttt{Completed}$ via S-RESOLVE |
 | $\texttt{Completed}(v)$ | S-COMPLETE, S-RESOLVE | (terminal) |
 
-**Invariant**: $id \in Q \Leftrightarrow \Phi(id) = \texttt{Pending}(\_,\_)$
-
-**State diagram**:
+**State diagram** (exhaustive for this core calculus):
 $$\texttt{Pending} \xrightarrow{\text{S-COMPLETE}} \texttt{Completed} \xleftarrow{\text{S-RESOLVE}} \texttt{Dependent}$$
 
 ---
@@ -132,9 +133,10 @@ $$\texttt{Pending} \xrightarrow{\text{S-COMPLETE}} \texttt{Completed} \xleftarro
 
 **Definition**: $\text{WF}(s)$ for state $s = (\rho, \Phi, Q)$ iff:
 
-1. $id \in Q \Leftrightarrow \Phi(id) = \texttt{Pending}(\_,\_)$ \quad (Q = exactly the pending Futures)
-2. $\Phi(id) = \texttt{Dependent}(\overline{id'}, f) \Rightarrow \forall id' \in \overline{id'}.\ id' \in \text{dom}(\Phi)$
-3. $\rho(x) = \texttt{Future}(id) \Rightarrow id \in \text{dom}(\Phi)$ \quad (no dangling Future refs)
+1. $id \in Q \Leftrightarrow \exists e, \rho'.\, \text{lookup}(\Phi, id) = \texttt{Pending}(e,\rho')$ \quad (Q tracks pending)
+2. $\text{lookup}(\Phi, id) = \texttt{Dependent}(\overline{id'}, f) \Rightarrow \forall id' \in \overline{id'}.\ id' \in \text{dom}(\Phi)$ \quad (no dangling)
+3. $\text{lookup}(\Phi, id) = \texttt{Dependent}(\overline{id'}, f) \Rightarrow id \notin \overline{id'} \land \text{NoDup}(\overline{id'})$ \quad (no self-cycle)
+4. $\rho(x) = \texttt{Future}(id) \Rightarrow id \in \text{dom}(\Phi)$ \quad (no dangling Future refs)
 
 **Lemma (WF Preservation)**: $\text{WF}(s) \land \langle e, s \rangle \to \langle e', s' \rangle \Rightarrow \text{WF}(s')$
 
@@ -194,13 +196,13 @@ let create e env =
 
 **Formal**:
 
-$$\frac{id \in s.Q \quad s.\Phi(id) = \texttt{Pending}(e', \rho') \quad \langle e', (\rho', \Phi, \emptyset) \rangle \to \langle e'', s'' \rangle}{\langle e, s \rangle \to \langle e, (\rho, s''.\Phi, Q \cup s''.Q)[id \mapsto \texttt{Pending}(e'', s''.\rho)] \rangle}$$
+$$\frac{id \in s.Q \quad \text{lookup}(s.\Phi, id) = \texttt{Pending}(e', \rho') \quad \langle e', (\rho', s.\Phi, []) \rangle \to \langle e'', s'' \rangle}{\langle e, s \rangle \to \langle e, (s.\rho,\ s''.\Phi,\ s.Q \mathbin{+\!\!+} s''.Q)[id \mapsto \texttt{Pending}(e'', s''.\rho)] \rangle}$$
 
 \hfill (S-SCHEDULE)
 
 **Intuition**: Non-deterministically pick a pending Future from $Q$, execute one step.
 
-*Note: The step may create new Futures (nested `async`), which get merged into the global state.*
+*Note: Substep starts with $(\rho', s.\Phi, [])$. If nested `async` creates new Futures, they appear in $s''.\Phi$ (which extends $s.\Phi$) and $s''.Q$.*
 
 ---
 
@@ -226,7 +228,7 @@ let run_one_random () =
 
 **Formal**:
 
-$$\frac{id \in s.Q \quad s.\Phi(id) = \texttt{Pending}(v, \rho)}{\langle e, s \rangle \to \langle e, (s \ominus id)[id \mapsto \texttt{Completed}(v)] \rangle}$$
+$$\frac{id \in s.Q \quad \text{lookup}(s.\Phi, id) = \texttt{Pending}(v, \rho) \quad v \text{ is a value}}{\langle e, s \rangle \to \langle e, (s \ominus id)[id \mapsto \texttt{Completed}(v)] \rangle}$$
 
 \hfill (S-COMPLETE)
 
@@ -255,7 +257,7 @@ let rec value_to_int v k = match v with
 
 **Formal**:
 
-$$\frac{s.\Phi(id) = \texttt{Dependent}(\textit{ids}, f) \quad \forall id' \in \textit{ids}.\, \exists v.\, s.\Phi(id') = \texttt{Completed}(v)}{\langle e, s \rangle \to \langle e, s[id \mapsto \texttt{Completed}(f(\text{collect}(s.\Phi, \textit{ids})))] \rangle}$$
+$$\frac{\text{lookup}(s.\Phi, id) = \texttt{Dependent}(\overline{id'}, f) \quad \forall id' \in \overline{id'}.\, \exists v.\, \text{lookup}(s.\Phi, id') = \texttt{Completed}(v)}{\langle e, s \rangle \to \langle e, s[id \mapsto \texttt{Completed}(f(\text{collect}(s.\Phi, \overline{id'})))] \rangle}$$
 
 \hfill (S-RESOLVE)
 
@@ -280,11 +282,11 @@ $$\frac{id = \text{fresh}(s.\Phi)}{\langle \texttt{Future}(id_1) \mathbin{\mathi
 $$\frac{id = \text{fresh}(s.\Phi)}{\langle v_1 \mathbin{\mathit{op}} \texttt{Future}(id_2), s \rangle \to \langle \texttt{Future}(id), s[id \mapsto \texttt{Dependent}([id_2], \lambda v_2.\, v_1 \mathbin{op} v_2)] \rangle}$$
 \hfill (M-LIFT-OP-VF)
 
-**Combine function semantics**:
+**Combine function $f$**:
 
-- $\texttt{Dependent}(\overline{id}, f)$ stores: dependency **IDs** $\overline{id}$ + combine function $f : [\text{Val}] \to \text{Val}$
-- S-RESOLVE invokes: $f(\text{collect}(s.\Phi, \overline{id}))$ (extracts values from completed Futures)
-- For binary ops: $f_{op}([v_1, v_2]) = v_1 \mathbin{op} v_2$
+- $f : [\text{Val}] \to \text{Val}$ is **not arbitrary** — always constructed by M-LIFT-OP rules
+- For binary ops: $f_{op} = \lambda [v_1, v_2].\, v_1 \mathbin{op} v_2$
+- S-RESOLVE invokes: $f(\text{collect}(s.\Phi, \overline{id}))$
 
 ---
 
@@ -323,20 +325,20 @@ let binary_op op v1 v2 k = match v1, v2 with
 
 `await` is **implicit** — triggered at positions requiring concrete values.
 
-$$\frac{s.\Phi(id) = \texttt{Completed}(v)}{\langle \texttt{Future}(id), s \rangle \to \langle v, s \rangle}$$
+$$\frac{\text{lookup}(s.\Phi, id) = \texttt{Completed}(v)}{\langle \texttt{Future}(id), s \rangle \to \langle v, s \rangle}$$
 \hfill (M-AWAIT)
 
-$$\frac{s.\Phi(id) = \texttt{Completed}(v)}{\langle \texttt{if Future}(id) \texttt{ then } e_2 \texttt{ else } e_3, s \rangle \to \langle \texttt{if } v \texttt{ then } e_2 \texttt{ else } e_3, s \rangle}$$
+$$\frac{\text{lookup}(s.\Phi, id) = \texttt{Completed}(v)}{\langle \texttt{if Future}(id) \texttt{ then } e_2 \texttt{ else } e_3, s \rangle \to \langle \texttt{if } v \texttt{ then } e_2 \texttt{ else } e_3, s \rangle}$$
 \hfill (M-AWAIT-IF)
 
 ---
 
 ## Main Rules: M-AWAIT (2/2)
 
-$$\frac{s.\Phi(id) = \texttt{Completed}(v)}{\langle \texttt{Future}(id)\ e, s \rangle \to \langle v\ e, s \rangle}$$
+$$\frac{\text{lookup}(s.\Phi, id) = \texttt{Completed}(v)}{\langle \texttt{Future}(id)\ e, s \rangle \to \langle v\ e, s \rangle}$$
 \hfill (M-AWAIT-APP1)
 
-$$\frac{s.\Phi(id) = \texttt{Completed}(v')}{\langle v\ \texttt{Future}(id), s \rangle \to \langle v\ v', s \rangle}$$
+$$\frac{\text{lookup}(s.\Phi, id) = \texttt{Completed}(v')}{\langle v\ \texttt{Future}(id), s \rangle \to \langle v\ v', s \rangle}$$
 \hfill (M-AWAIT-APP2)
 
 **Notes**:
@@ -349,13 +351,13 @@ $$\frac{s.\Phi(id) = \texttt{Completed}(v')}{\langle v\ \texttt{Future}(id), s \
 ## Progress Property (1/2)
 
 **Theorem (Progress)**: If $\text{WF}(s)$ and $e$ is not a final value, then:
-$$\exists e', s'.\ \langle e, s \rangle \to \langle e', s' \rangle \quad \text{OR} \quad Q \neq \emptyset$$
+$$\exists e', s'.\ \langle e, s \rangle \to \langle e', s' \rangle \quad \text{OR} \quad Q \neq []$$
 
 **Globally stuck** only when ALL of:
 
 1. Main needs a Future at a **demand position** (if-cond, function, argument, top-level)
-2. That Future not completed: $\Phi(id) \neq \texttt{Completed}(\_)$
-3. No pending work: $Q = \emptyset$
+2. That Future not completed: $\text{lookup}(\Phi, id) \neq \texttt{Completed}(\_)$
+3. No pending work: $Q = []$
 
 **Key insight**: Main stuck $\neq$ system stuck!
 
