@@ -1,0 +1,50 @@
+# Web Service Composition — Remote Call + Dependency Graph unified
+#
+# Scenario: E-commerce checkout
+#   - Phase 1: Fire off independent "remote calls" (async)
+#   - Phase 2: Dependent computations build automatically (operators)
+#   - Phase 3: Diamond join — two branches converge
+#   - Phase 4: Pipeline — cascading post-processing
+#
+# Dependency Graph:
+#
+#   get_user(token)    get_price(item)
+#      |  (#0)            |  (#1)
+#      v                  v
+#    auth=user+1       tax=price*2
+#      |  (#2)            |  (#3)
+#       \                /
+#        v              v
+#        total=auth+tax
+#            |  (#4)
+#            v
+#      receipt=total+100
+#            |  (#5)
+#            v
+#         result
+#
+# Key point: "remote call" and "dependency wiring" use the same syntax.
+#   - async e = fire a remote call (space/time decoupled)
+#   - Future op Future = wire a dependency edge (auto-parallelism)
+#
+# Expected: get_user=1000, get_price=50
+#   auth   = 1000 + 1  = 1001
+#   tax    = 50 * 2    = 100
+#   total  = 1001 + 100 = 1101
+#   receipt = 1101 + 100 = 1201
+
+# Phase 1: Fire off independent remote calls
+let user  = async (1000) in    # Future #0: "get_user(token)" returns 1000
+let price = async (50) in      # Future #1: "get_price(item)" returns 50
+
+# Phase 2: Dependent computations — operators auto-detect Futures
+let auth = user + 1 in         # Future #2: Dependent([#0], λv. v+1)  — permission check
+let tax  = price * 2 in        # Future #3: Dependent([#1], λv. v*2)  — tax computation
+
+# Phase 3: Diamond join — both branches must complete
+let total = auth + tax in      # Future #4: Dependent([#2, #3], λ[a,b]. a+b)
+
+# Phase 4: Pipeline — cascading dependency
+let receipt = total + 100 in   # Future #5: Dependent([#4], λv. v+100) — add handling fee
+
+receipt  # M-AWAIT triggers when value needed → 1201
