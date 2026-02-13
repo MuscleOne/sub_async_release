@@ -8,7 +8,13 @@ During Agda mechanization, several **design decisions** and **potential bugs** w
 
 ## 🔴 Critical Issues (Require Slides Update)
 
-### 1. `s[id ↦ σ]` Semantics: Update vs Prepend
+> **2026-02-13 更新**: Issues 1-3 已在论文 sub-async.tex §3.2 中处理:
+> - §3.2 明确写了 "prepend (shadowing) semantics"
+> - §3.2 定义了 `fresh(Φ) ≜ |Φ|`
+> - S-SCHEDULE rule 使用了 explicit merge notation
+> 以下内容保留作为历史记录。
+
+### 1. `s[id ↦ σ]` Semantics: Update vs Prepend ✅ RESOLVED in paper
 
 **Slides say:**
 ```
@@ -34,7 +40,7 @@ Either:
 
 ---
 
-### 2. `fresh(Φ)` Is Underspecified
+### 2. `fresh(Φ)` Is Underspecified ✅ RESOLVED in paper
 
 **Slides say:**
 ```
@@ -63,7 +69,7 @@ Returns `length(Φ)` — **deterministic**, sequential allocation (0, 1, 2, ...)
 
 ---
 
-### 3. S-SCHEDULE: State Merging Semantics
+### 3. S-SCHEDULE: State Merging Semantics ✅ RESOLVED in paper
 
 **Slides say:**
 ```
@@ -200,39 +206,20 @@ All correctly modeled in Agda.
 
 ## Recommended Changes to SLIDES_CORE_RULES.md
 
-### Section: Auxiliary Definitions
+> **2026-02-13**: 以下建议已全部反映在 sub-async.tex §3.2 中。
+> SLIDES_CORE_RULES.md 仍用旧 notation（可接受，因为 paper 是最终版本）。
 
-**Current:**
-```latex
-Φ ∈ FutureTable = Id ⇀ Status
-fresh(Φ) ≜ choose id s.t. id ∉ dom(Φ)
-```
+### Section: Auxiliary Definitions — ✅ Done in paper
 
-**Proposed:**
-```latex
-Φ ∈ FutureTable = List(Id × Status)  -- newest first
-lookup(Φ, id) returns first match
-fresh(Φ) = |Φ|  -- assuming sequential allocation: 0, 1, 2, ...
-```
+Paper §3.2 now defines `fresh(Φ) ≜ |Φ|` and describes prepend semantics.
 
-### Section: Configuration
+### Section: Configuration — ✅ Done in paper
 
-**Current:**
-```latex
-s[id ↦ σ] ≜ (ρ, Φ[id ↦ σ], Q)
-```
+Paper §3.2 explicitly states "prepend (shadowing) semantics".
 
-**Proposed:**
-```latex
-s[id ↦ σ] ≜ (ρ, (id, σ) :: Φ, Q)  -- prepend (shadows previous)
-```
+### Section: S-SCHEDULE — ✅ Done in paper
 
-### Section: S-SCHEDULE
-
-**Current rule premise creates confusion about what `s''` contains.**
-
-**Proposed clarification:**
-Add note: "The substep `⟨e', (ρ', Φ, ∅)⟩ → ⟨e'', s''⟩` may create new Futures, appending to `Φ`. The resulting `s''.Φ` contains `Φ` plus any newly allocated Futures."
+Paper uses explicit merge notation in the S-SCHEDULE rule.
 
 ---
 

@@ -1,104 +1,55 @@
 # Sub_Async Agda Mechanization
 
-## 为什么不需要类型系统也能mechanize？
+Partial mechanization of λ_fut operational semantics for the ICFP 2026 paper.
+~1100 LOC across 5 modules. All 9 reduction rules encoded + 12 example proofs verified.
 
-你同事说得对！虽然没有类型系统，但Sub_Async的操作语义仍然可以mechanize很多**有价值**的性质：
-
-### 🎯 可以证明的核心性质
-
-1. **WF Preservation** (最重要)
-   ```agda
-   WF-preserved : ∀ {c c'} → WF (proj₂ c) → c ⟶ c' → WF (proj₂ c')
-   ```
-   - 这保证系统始终"健康"
-   - id freshness、无悬空引用、依赖图有界等
-
-2. **Stuck Characterization** (很有用)  
-   ```agda  
-   stuck-characterization : 系统卡住 ↔ (主表达式await未完成Future ∧ Q = ∅)
-   ```
-   - 精确刻画系统何时"真正卡死"
-   - 证明scheduler的"必要性"
-
-3. **Deterministic State Updates** (基础性质)
-   - Fresh id生成的确定性
-   - Future状态转换的单调性  
-   - Dependency图的无环性
-
-### 🚫 不能证明的性质（需要类型）
-
-- **Progress**: `¬ Stuck c → ∃ c' (c ⟶ c')` 
-  - 因为untyped表达式可能type error
-  - 例如: `if 42 then e₁ else e₂` 会卡住
-- **Type Safety**: `⊢ e : τ → ∃ v (e →* v)`
-  - 显然没有类型系统就没有type safety
-
-## 📁 模块结构
+## 模块结构
 
 ```
-SubAsync.agda           -- 语法、值、状态定义
-WellFormedness.agda     -- WF(s)不变量定义  
-Reductions.agda         -- 9条操作语义规则
-WFPreservation.agda     -- 主要证明：WF保持性
-StuckCharacterization.agda  -- 卡住条件刻画
-Examples.agda           -- 具体执行trace
+SubAsync.agda        — AST, Value, Status, State, Configuration    ✅ complete
+WellFormedness.agda  — WF(s) 4条不变量 + fresh-id + 状态操作       ✅ complete
+Reductions.agda      — 9条规则 (inductive _⟶_)                    ✅ complete
+WFPreservation.agda  — WF-preserved 主定理 + stuck-characterization ⚠️ 10 postulates
+Examples.agda        — 01_basic + 11_diamond trace (12个证明)       ✅ complete
+artifacts/           — 调试用测试脚本（可忽略）
+traces/              — OCaml执行trace记录
 ```
 
-## 🔄 与Aeff的对比
+## 当前状态
 
-| 方面 | Aeff | Sub_Async |
-|------|------|-----------|
-| **类型** | 有完整类型系统 | Untyped |  
-| **可证明** | Progress + Preservation | WF Preservation + Stuck Characterization |
-| **复杂度** | ~15个规则 | 9个规则 |
-| **并行** | 显式 `P ∥ Q` | 隐式队列调度 |
+### 已证明（无 postulate）
+- 9条规则作为 inductive relation 通过 type-check ✅
+- 12个具体 reduction step 证明 (Examples.agda) ✅
+- M-AWAIT / M-AWAIT-IF / M-AWAIT-APP1 / M-AWAIT-APP2 保持 WF（状态不变，trivial）✅
+- `queue-add-new` lemma ✅
 
-## 🛠 推荐的mechanization路径
+### Postulates (10个，在 WFPreservation.agda)
+| Postulate | 用途 | 难度 |
+|-----------|------|------|
+| `fresh-id-not-in-domain` | fresh id ∉ dom(Φ) | 中等，最有价值 |
+| `lookup-update-same` | prepend 后 lookup 返回新值 | 简单 |
+| `queue-add-preserves` | prepend 保持队列成员 | 简单 |
+| `M-ASYNC-preserves` | async 后 WF 保持 | 中等，依赖 fresh lemma |
+| `M-LIFT-OP-preserves` | lift-op 后 WF 保持 | 中等，依赖 fresh lemma |
+| `S-RESOLVE-preserves` | Dependent→Completed 后 WF | 中等 |
+| `S-COMPLETE-preserves` | Pending(v)→Completed 后 WF | 中等 |
+| `S-SCHEDULE-preserves-generic` | substep 后 WF（最复杂） | 困难 |
+| `stuck-characterization` | Stuck ↔ await incomplete + Q=∅ | 困难 |
+| `NeedsFuture'` | 辅助谓词 | 简单但需设计 |
 
-### Phase 1: 基础框架 ✅
-- [x] 语法和语义域定义 (`SubAsync.agda`)
-- [x] WF不变量形式化 (`WellFormedness.agda`) 
-- [x] 9条规则形式化 (`Reductions.agda`)
+### 基础设施 postulates（非证明相关）
+- `SubAsync.agda`: `Var`, `_≟ᵥ_`, `CombineFunction`, `apply-combine`
+- `Reductions.agda`: `_/_`, `eval-app`, `eval-app-val`, `postulate-var-from-id`
+- `Examples.agda`: `varX` ~ `varRight` (测试变量)
 
-### Phase 2: 核心证明 (当前任务)
-- [ ] 完成 `WF-preserved` 证明 (按规则分case)
-- [ ] 证明 `stuck-characterization` 定理
-- [ ] 添加辅助lemma (freshness, no-cycles等)
+## 无类型系统的限制
 
-### Phase 3: 实用性验证 
-- [ ] 具体例子的execution trace  
-- [ ] 与OCaml实现的bisimulation
-- [ ] Redex可执行语义 (找bug神器！)
+**可证明**: WF Preservation, Stuck Characterization, 状态单调性
+**不可证明**: Progress (untyped 允许 `if 42 then ...`), Type Safety
 
-## 🎲 Alternative工具建议
+## 关键设计决策（见 AGDA_vs_SLIDES_DISCREPANCIES.md）
 
-如果Agda太steep，考虑：
-
-1. **PLT Redex** (强烈推荐！)
-   ```racket
-   (define-language sub-async
-     (e ::= (async e) (future id) (+ e e) ...)
-     (s ::= (ρ Φ Q)))
-   
-   (define step
-     (--> (async e) (future fresh-id) "M-ASYNC")
-     (--> (+ (future id1) (future id2)) (future fresh-id) "M-LIFT-OP"))
-   
-   (redex-check step property)  ; 自动找反例！
-   ```
-
-2. **K Framework** 
-   - Configuration直接映射到K的cells
-   - 非常适合你的 `⟨e, (ρ,Φ,Q)⟩` 风格
-
-3. **Ott** + **Coq**
-   - 从LaTeX-style规格生成Coq代码  
-   - 保持slides和formalization同步
-
-## 💡 开始建议
-
-1. **先用Redex验证**：快速发现规则中的bug
-2. **再用Agda证明**：mechanize WF preservation  
-3. **与OCaml对比**：确保formalization和implementation一致
-
-这样即使没有类型系统，也能获得很强的formal guarantee！
+1. `s[id ↦ σ]` 是 **prepend**（shadowing），不是 replace
+2. `fresh(Φ) = |Φ|`（确定性，非 slides 中的 non-deterministic choice）
+3. `FutureTable = List (Id × Status)`（association list，非 partial function）
+4. S-SCHEDULE 使用 `merge-futures` (++) 合并新旧 FutureTable
