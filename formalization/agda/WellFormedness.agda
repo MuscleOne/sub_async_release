@@ -9,7 +9,7 @@ open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax)
 open import Data.Unit using (⊤; tt)
 open import Data.Empty using (⊥)
-open import Data.Nat using (ℕ; zero; suc; _≟_)
+open import Data.Nat using (ℕ; zero; suc; _≟_; _<_; _≤_; s≤s; z≤n)
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; _≢_)
 open import Relation.Nullary using (¬_; Dec; yes; no)
@@ -22,8 +22,8 @@ module WellFormedness where
 _↔_ : Set → Set → Set
 A ↔ B = (A → B) × (B → A)
 
--- Helper: check if id is in queue
-_∈Q_ : Id → PendingQueue → Set
+-- Helper: check if id is in pending set
+_∈Q_ : Id → PendingSet → Set
 id ∈Q Q = id ∈ Q
 
 -- Helper: check if id is in domain of future table
@@ -46,6 +46,13 @@ NoDup (x ∷ xs) = (¬ (x ∈ xs)) × NoDup xs
 no-self-ref : Id → List Id → Set  
 no-self-ref id deps = ¬ (id ∈ deps)
 
+-- Fresh id generation: returns length of FutureTable
+-- This guarantees the returned id is not already used
+-- (assuming ids are allocated sequentially: 0, 1, 2, ...)
+fresh-id : FutureTable → Id  
+fresh-id [] = zero
+fresh-id (_ ∷ rest) = suc (fresh-id rest)
+
 -- WELL-FORMEDNESS INVARIANT
 -- Corresponds to WF(s) from slides
 data WF (s : State) : Set where
@@ -66,18 +73,14 @@ data WF (s : State) : Set where
     (∀ x id → lookup (get-env s) x ≡ just (futureV id) →
               id-in-domain id (get-futures s)) →
     
+    -- 5. All allocated ids are below fresh-id (sequential allocation invariant)
+    (∀ id σ → lookup-future (get-futures s) id ≡ just σ →
+              id < fresh-id (get-futures s)) →
+    
+    -- 6. No duplicates in pending set (Q is semantically a set)
+    NoDup (get-queue s) →
+    
     WF s
-
--- Helper: biconditional (moved after definition)
--- _↔_ : Set → Set → Set  
--- A ↔ B = (A → B) × (B → A)
-
--- Fresh id generation: returns length of FutureTable
--- This guarantees the returned id is not already used
--- (assuming ids are allocated sequentially: 0, 1, 2, ...)
-fresh-id : FutureTable → Id  
-fresh-id [] = zero
-fresh-id (_ ∷ rest) = suc (fresh-id rest)
 
 -- State update operations (from slides)
 -- s[id ↦ σ] - update future table  
@@ -88,12 +91,13 @@ update-future ⟨ ρ , Φ , Q ⟩ id σ = ⟨ ρ , (id , σ) ∷ Φ , Q ⟩
 add-to-queue : State → Id → State  
 add-to-queue ⟨ ρ , Φ , Q ⟩ id = ⟨ ρ , Φ , id ∷ Q ⟩
 
+-- Filter out all occurrences of target from list
+filter-out : Id → List Id → List Id
+filter-out _ [] = []
+filter-out target (x ∷ xs) with target ≟ x
+... | yes _ = filter-out target xs
+... | no  _ = x ∷ filter-out target xs
+
 -- s ⊖ id - remove from queue
 remove-from-queue : State → Id → State
 remove-from-queue ⟨ ρ , Φ , Q ⟩ id = ⟨ ρ , Φ , filter-out id Q ⟩
-  where
-  filter-out : Id → List Id → List Id
-  filter-out _ [] = []
-  filter-out target (x ∷ xs) with target ≟ x  
-  ... | yes _ = filter-out target xs
-  ... | no  _ = x ∷ filter-out target xs

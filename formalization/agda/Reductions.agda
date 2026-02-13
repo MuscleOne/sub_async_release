@@ -7,7 +7,7 @@ open import Data.Product using (_×_; _,_; ∃; ∃-syntax)
 open import Data.Bool using (Bool; true; false)
 open import Data.Nat using (ℕ; _+_; _*_; _∸_; _<ᵇ_; _≡ᵇ_)
 open import Function using (_∘_)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; _≢_)
 
 open import SubAsync
 open import WellFormedness
@@ -100,6 +100,9 @@ data _⟶_ : Configuration → Configuration → Set where
 
   -- M-LIFT-OP-FF: Future op Future → new Dependent Future  
   M-LIFT-OP-FF : ∀ {op id₁ id₂ ρ Φ Q} →
+    id-in-domain id₁ Φ →
+    id-in-domain id₂ Φ →
+    id₁ ≢ id₂ →
     let id = fresh-id Φ in
     let s' = update-future ⟨ ρ , Φ , Q ⟩ id (dependent (id₁ ∷ id₂ ∷ []) (combine-binary op)) in
     ⟪ binop op (value-to-expr (futureV id₁)) (value-to-expr (futureV id₂)) , ⟨ ρ , Φ , Q ⟩ ⟫ ⟶ 
@@ -107,6 +110,7 @@ data _⟶_ : Configuration → Configuration → Set where
 
   -- M-LIFT-OP-FV: Future op Value → new Dependent Future
   M-LIFT-OP-FV : ∀ {op id₁ v₂ ρ Φ Q} →  
+    id-in-domain id₁ Φ →
     let id = fresh-id Φ in
     let s' = update-future ⟨ ρ , Φ , Q ⟩ id (dependent (id₁ ∷ []) (combine-unary-left op v₂)) in
     ⟪ binop op (value-to-expr (futureV id₁)) (value-to-expr v₂) , ⟨ ρ , Φ , Q ⟩ ⟫ ⟶ 
@@ -114,6 +118,7 @@ data _⟶_ : Configuration → Configuration → Set where
 
   -- M-LIFT-OP-VF: Value op Future → new Dependent Future  
   M-LIFT-OP-VF : ∀ {op v₁ id₂ ρ Φ Q} →
+    id-in-domain id₂ Φ →
     let id = fresh-id Φ in  
     let s' = update-future ⟨ ρ , Φ , Q ⟩ id (dependent (id₂ ∷ []) (combine-unary-right op v₁)) in  
     ⟪ binop op (value-to-expr v₁) (value-to-expr (futureV id₂)) , ⟨ ρ , Φ , Q ⟩ ⟫ ⟶
@@ -143,12 +148,13 @@ data _⟶_ : Configuration → Configuration → Set where
     ⟪ eval-app-val v v' , ⟨ ρ , Φ , Q ⟩ ⟫
 
   -- S-SCHEDULE: Execute one step of pending Future
+  -- Result uses s''.Φ directly (already extends Φ since substep starts from Φ)
   S-SCHEDULE : ∀ {e ρ Φ Q id e' ρ' e'' s''} →
     id ∈Q Q →
     lookup-future Φ id ≡ just (pending e' ρ') →  
     ⟪ e' , ⟨ ρ' , Φ , [] ⟩ ⟫ ⟶ ⟪ e'' , s'' ⟫ →
     ⟪ e , ⟨ ρ , Φ , Q ⟩ ⟫ ⟶ 
-    ⟪ e , update-future ⟨ ρ , merge-futures Φ (get-futures s'') , merge-queues Q (get-queue s'') ⟩ 
+    ⟪ e , update-future ⟨ ρ , get-futures s'' , Q ++ get-queue s'' ⟩ 
            id (pending e'' (get-env s'')) ⟫
 
   -- S-COMPLETE: Pending → Completed when expression is value

@@ -161,7 +161,7 @@ Set (unordered, no duplicates).
 
 **Agda implements:**
 ```agda
-TaskQueue = List Id
+PendingSet = List Id   -- (backward-compatible alias PendingQueue still exists)
 ```
 
 **Impact:** Non-deterministic choice still models correctly (any element can be chosen), but list allows duplicates theoretically.

@@ -160,7 +160,7 @@ e ::= V | e₁ ⊕ e₂ | async e | let x = e₁ in e₂
   e — Current expression
   ρ — Environment (x → V)
   Φ — Future table (fut_id → FutureStatus)
-  Q — Task queue
+  Q — Pending task set
 ```
 
 **Small-Step Rules:** See `docs/ROADMAP.md` for draft rules.

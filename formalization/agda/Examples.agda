@@ -230,7 +230,7 @@ lift-ff-after = ⟪ value-to-expr (futureV 3) , ⟨ env3 , ft4' , 0 ∷ 1 ∷ 2 
 
 -- The proof!
 lift-ff-proof : lift-ff-before ⟶ lift-ff-after
-lift-ff-proof = M-LIFT-OP-FF
+lift-ff-proof = M-LIFT-OP-FF (pending _ _ , refl) (pending _ _ , refl) (λ ())
 
 -- =============================================================================
 -- S-COMPLETE PROOF: Pending(value) → Completed
@@ -357,7 +357,7 @@ lift-fv-after = ⟪ value-to-expr (futureV 1) , ⟨ [] , ft-after-fv , 0 ∷ [] 
 
 -- The proof!
 lift-fv-proof : lift-fv-before ⟶ lift-fv-after
-lift-fv-proof = M-LIFT-OP-FV
+lift-fv-proof = M-LIFT-OP-FV (pending _ _ , refl)
 
 -- =============================================================================
 -- M-LIFT-OP-VF PROOF: Value + Future → Dependent Future
@@ -381,7 +381,7 @@ lift-vf-after = ⟪ value-to-expr (futureV 1) , ⟨ [] , ft-after-vf , 0 ∷ [] 
 
 -- The proof!
 lift-vf-proof : lift-vf-before ⟶ lift-vf-after
-lift-vf-proof = M-LIFT-OP-VF
+lift-vf-proof = M-LIFT-OP-VF (pending _ _ , refl)
 
 -- =============================================================================
 -- M-AWAIT-IF PROOF: Await in if condition
@@ -524,23 +524,14 @@ inner-step-config-after = ⟪ value-to-expr (futureV 1) , inner-s'' ⟫
 inner-step : ⟪ async (num 10) , ⟨ [] , ft-for-schedule , [] ⟩ ⟫ ⟶ inner-step-config-after
 inner-step = M-ASYNC
 
--- After S-SCHEDULE:
--- merge-futures Φ (get-futures s'') = ft-for-schedule ++ inner-ft-after
--- merge-queues Q (get-queue s'') = [0] ++ [1] = [0, 1]
--- update-future adds (0, pending (futureV 1) []) to front
---
--- WAIT: merge-futures Φ (get-futures s'')
---   = ft-for-schedule ++ inner-ft-after  
---   = [(0, ...)] ++ [(1, ...), (0, ...)]
---   = [(0, ...), (1, ...), (0, ...)]
--- Then update-future prepends (0, pending new-expr [])
-
-ft-merged : FutureTable
-ft-merged = ft-for-schedule ++ inner-ft-after  -- merge
+-- After S-SCHEDULE (fixed: use get-futures s'' directly, no merge):
+-- get-futures s'' = inner-ft-after = [(1, pending (num 10) []), (0, pending (async (num 10)) [])]
+-- Q ++ get-queue s'' = [0] ++ [1] = [0, 1]
+-- update-future prepends (0, pending (futureV 1) []) to get-futures s''
 
 -- Result of update-future ... id (pending e'' env'')
 ft-after-schedule : FutureTable
-ft-after-schedule = (0 , pending (value-to-expr (futureV 1)) []) ∷ ft-merged
+ft-after-schedule = (0 , pending (value-to-expr (futureV 1)) []) ∷ inner-ft-after
 
 schedule-after : Configuration
 schedule-after = ⟪ num 99 , ⟨ [] , ft-after-schedule , 0 ∷ 1 ∷ [] ⟩ ⟫

@@ -86,7 +86,7 @@ $$|xs| \quad \text{(length)} \qquad [x_1, \ldots, x_n] \triangleq x_1 :: \cdots 
 **Semantic domains**:
 $$\rho \in \text{Env} = \text{Var} \rightharpoonup \text{Val}$$
 $$\Phi \in \text{FutureTable} = [(\text{Id} \times \text{Status})] \quad \text{(association list)}$$
-$$Q \in \text{TaskQueue} = [\text{Id}]$$
+$$Q \in \text{PendingTaskSet} = [\text{Id}] \quad \text{(semantically a set, implemented as list)}$$
 
 **Operations**:
 $$\text{fresh}(\Phi) \triangleq |\Phi| \quad \text{(sequential allocation: 0, 1, 2, ...)}$$
@@ -137,6 +137,7 @@ $$\texttt{Pending} \xrightarrow{\text{S-COMPLETE}} \texttt{Completed} \xleftarro
 2. $\text{lookup}(\Phi, id) = \texttt{Dependent}(\overline{id'}, f) \Rightarrow \forall id' \in \overline{id'}.\ id' \in \text{dom}(\Phi)$ \quad (no dangling)
 3. $\text{lookup}(\Phi, id) = \texttt{Dependent}(\overline{id'}, f) \Rightarrow id \notin \overline{id'} \land \text{NoDup}(\overline{id'})$ \quad (no self-cycle)
 4. $\rho(x) = \texttt{Future}(id) \Rightarrow id \in \text{dom}(\Phi)$ \quad (no dangling Future refs)
+5. $\text{NoDup}(Q)$ \quad (no duplicate entries in pending set)
 
 **Lemma (WF Preservation)**: $\text{WF}(s) \land \langle e, s \rangle \to \langle e', s' \rangle \Rightarrow \text{WF}(s')$
 

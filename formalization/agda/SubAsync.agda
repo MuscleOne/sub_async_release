@@ -90,9 +90,13 @@ lookup-future ((id' , σ) ∷ Φ) id with id ≟ id'
 ... | yes _ = just σ
 ... | no  _ = lookup-future Φ id
 
--- PENDING QUEUE
+-- PENDING TASK SET (semantically a set; implemented as List for simplicity)
+PendingSet : Set
+PendingSet = List Id
+
+-- Backward-compatible alias
 PendingQueue : Set
-PendingQueue = List Id
+PendingQueue = PendingSet
 
 -- STATE COMPONENTS
 record State : Set where
@@ -100,7 +104,7 @@ record State : Set where
   field
     ρ : Env           -- environment
     Φ : FutureTable   -- future table  
-    Q : PendingQueue  -- pending queue
+    Q : PendingSet    -- pending task set
 
 -- CONFIGURATION (use record to avoid parser ambiguity with State constructor)
 record Configuration : Set where
