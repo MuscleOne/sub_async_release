@@ -137,7 +137,8 @@ $$\texttt{Pending} \xrightarrow{\text{S-COMPLETE}} \texttt{Completed} \xleftarro
 2. $\text{lookup}(\Phi, id) = \texttt{Dependent}(\overline{id'}, f) \Rightarrow \forall id' \in \overline{id'}.\ id' \in \text{dom}(\Phi)$ \quad (no dangling)
 3. $\text{lookup}(\Phi, id) = \texttt{Dependent}(\overline{id'}, f) \Rightarrow id \notin \overline{id'} \land \text{NoDup}(\overline{id'})$ \quad (no self-cycle)
 4. $\rho(x) = \texttt{Future}(id) \Rightarrow id \in \text{dom}(\Phi)$ \quad (no dangling Future refs)
-5. $\text{NoDup}(Q)$ \quad (no duplicate entries in pending set)
+5. $\text{lookup}(\Phi, id) = \sigma \Rightarrow id < \text{fresh}(\Phi)$ \quad (sequential allocation invariant)
+6. $\text{NoDup}(Q)$ \quad (no duplicate entries in pending set)
 
 **Lemma (WF Preservation)**: $\text{WF}(s) \land \langle e, s \rangle \to \langle e', s' \rangle \Rightarrow \text{WF}(s')$
 
