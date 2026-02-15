@@ -9,15 +9,15 @@
 --   PROVEN (7 cases + value-to-expr bridge):
 --   - ⊇-fresh: store extension via WF+WT freshness (zero postulates)
 --   - value-to-expr-typed: ALL 4 value forms (zero postulates)
---   - expr-to-value-typed: inverse bridge (3/4 zero postulates, funV uses expr-weaken)
+--   - expr-to-value-typed: inverse bridge (3/4 zero postulates, funV uses funV-typing)
 --   - M-AWAIT: future-lit inversion + WT + value-to-expr-typed
 --   - M-AWAIT-IF: if-inversion + eval-if case analysis (zero postulates)
 --   - M-ASYNC: T-FutureLit + lookup-store-same
 --   - M-LIFT-OP-FF/FV/VF: T-FutureLit + lookup-store-same
 --   - S-COMPLETE: expr-to-value-typed + WT reconstruction
 --
---   POSTULATED (2 cases + 1 standard lemma + main theorem):
---   - expr-weaken: context weakening (standard, used only for funV case)
+--   POSTULATED (2 cases + 1 semantic bridge + main theorem):
+--   - funV-typing: closure value typing bridge (semantic, only for funV)
 --   - S-RESOLVE: combine function typing
 --   - S-SCHEDULE: inductive substep
 --   - type-preserved: main theorem
@@ -134,16 +134,20 @@ fun-inversion (T-Sub d s<:) with fun-inversion d
 ... | τ₁ , τ₂ , body , p = τ₁ , τ₂ , body , <:-trans p s<:
 
 -- ============================================================================
--- EXPR-TO-VALUE TYPING BRIDGE: 3/4 PROVEN + funV via weakening
+-- EXPR-TO-VALUE TYPING BRIDGE: 3/4 PROVEN + funV via funV-typing
 -- ============================================================================
 
--- Context weakening for expression typing.
--- Standard property: if e is typeable, it remains typeable in any context.
--- For value-to-expr outputs (num, bool, future-lit, fun x e), the expression
--- is closed or self-contained, so this is trivially true in practice.
--- Full proof requires induction on the typing derivation; we postulate it.
+-- Closure value typing bridge.
+-- When `fun x e` is typeable in some context Γ, the closure `funV x e ρ`
+-- (which captures runtime bindings for free variables in e) is a well-typed
+-- value. This is a semantic property of closure semantics: ρ provides
+-- runtime bindings that correspond to the typing context Γ.
+-- We postulate this because the Agda formalization does not model the
+-- connection between runtime environments (Env) and typing contexts (Ctx).
 postulate
-  expr-weaken : ∀ {Σ Γ Γ' e τ} → Σ ； Γ ⊢ e ∶ τ → Σ ； Γ' ⊢ e ∶ τ
+  funV-typing : ∀ {Σ Γ x e ρ τ} →
+    Σ ； Γ ⊢ fun x e ∶ τ →
+    Σ ⊢v funV x e ρ ∶ τ
 
 expr-to-value-typed : ∀ {Σ Γ v τ} → Σ ； Γ ⊢ value-to-expr v ∶ τ → Σ ⊢v v ∶ τ
 expr-to-value-typed {v = numV n} typing =
@@ -153,9 +157,7 @@ expr-to-value-typed {v = boolV b} typing =
 expr-to-value-typed {v = futureV id} typing =
   let (τ' , lk , p) = future-lit-inversion typing
   in TV-Sub (TV-Future lk) p
-expr-to-value-typed {v = funV x e ρ} typing =
-  let (τ₁ , τ₂ , body , p) = fun-inversion typing
-  in TV-Sub (TV-Fun (λ {Γ'} → expr-weaken body)) p
+expr-to-value-typed {v = funV x e ρ} typing = funV-typing typing
 
 -- ============================================================================
 -- VALUE-TO-EXPR TYPING BRIDGE: ALL 4 CASES PROVEN
