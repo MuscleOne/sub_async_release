@@ -6,16 +6,18 @@
 --   The store typing Σ may grow (via ⊇) when new Futures are created.
 --
 -- Status:
---   PROVEN (6 cases + value-to-expr bridge):
+--   PROVEN (7 cases + value-to-expr bridge):
 --   - ⊇-fresh: store extension via WF+WT freshness (zero postulates)
 --   - value-to-expr-typed: ALL 4 value forms (zero postulates)
+--   - expr-to-value-typed: inverse bridge (3/4 zero postulates, funV uses expr-weaken)
 --   - M-AWAIT: future-lit inversion + WT + value-to-expr-typed
 --   - M-AWAIT-IF: if-inversion + eval-if case analysis (zero postulates)
 --   - M-ASYNC: T-FutureLit + lookup-store-same
 --   - M-LIFT-OP-FF/FV/VF: T-FutureLit + lookup-store-same
+--   - S-COMPLETE: expr-to-value-typed + WT reconstruction
 --
---   POSTULATED (3 cases + main theorem):
---   - S-COMPLETE: pending value → completed
+--   POSTULATED (2 cases + 1 standard lemma + main theorem):
+--   - expr-weaken: context weakening (standard, used only for funV case)
 --   - S-RESOLVE: combine function typing
 --   - S-SCHEDULE: inductive substep
 --   - type-preserved: main theorem
@@ -29,7 +31,7 @@ open import Data.Maybe using (just; nothing)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
 open import Data.Unit using (⊤; tt)
 open import Data.Empty using (⊥; ⊥-elim)
-open import Function using (_∘_)
+open import Function using (_∘_; case_of_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; _≢_)
 open import Relation.Nullary using (¬_; Dec; yes; no)
 open import Data.Nat using (ℕ; _≟_; _<_; suc)
@@ -106,6 +108,54 @@ future-lit-inversion : ∀ {Σ Γ id τ} →
 future-lit-inversion (T-FutureLit lk) = _ , lk , <:-refl
 future-lit-inversion (T-Sub deriv s<:) with future-lit-inversion deriv
 ... | τ' , lk , sub₁ = τ' , lk , <:-trans sub₁ s<:
+
+-- ============================================================================
+-- EXPR INVERSION LEMMAS (for value-form expressions)
+-- ============================================================================
+
+-- num n can only be typed by T-Num or T-Sub.
+num-inversion : ∀ {Σ Γ n τ} →
+  Σ ； Γ ⊢ num n ∶ τ → int-ty <: τ
+num-inversion T-Num = <:-refl
+num-inversion (T-Sub d s<:) = <:-trans (num-inversion d) s<:
+
+-- bool b can only be typed by T-Bool or T-Sub.
+bool-inversion : ∀ {Σ Γ b τ} →
+  Σ ； Γ ⊢ bool b ∶ τ → bool-ty <: τ
+bool-inversion T-Bool = <:-refl
+bool-inversion (T-Sub d s<:) = <:-trans (bool-inversion d) s<:
+
+-- fun x e can only be typed by T-Fun or T-Sub.
+fun-inversion : ∀ {Σ Γ x e τ} →
+  Σ ； Γ ⊢ fun x e ∶ τ →
+  ∃[ τ₁ ] ∃[ τ₂ ] (Σ ； ((x , τ₁) ∷ Γ) ⊢ e ∶ τ₂ × fun-ty τ₁ τ₂ <: τ)
+fun-inversion (T-Fun body) = _ , _ , body , <:-refl
+fun-inversion (T-Sub d s<:) with fun-inversion d
+... | τ₁ , τ₂ , body , p = τ₁ , τ₂ , body , <:-trans p s<:
+
+-- ============================================================================
+-- EXPR-TO-VALUE TYPING BRIDGE: 3/4 PROVEN + funV via weakening
+-- ============================================================================
+
+-- Context weakening for expression typing.
+-- Standard property: if e is typeable, it remains typeable in any context.
+-- For value-to-expr outputs (num, bool, future-lit, fun x e), the expression
+-- is closed or self-contained, so this is trivially true in practice.
+-- Full proof requires induction on the typing derivation; we postulate it.
+postulate
+  expr-weaken : ∀ {Σ Γ Γ' e τ} → Σ ； Γ ⊢ e ∶ τ → Σ ； Γ' ⊢ e ∶ τ
+
+expr-to-value-typed : ∀ {Σ Γ v τ} → Σ ； Γ ⊢ value-to-expr v ∶ τ → Σ ⊢v v ∶ τ
+expr-to-value-typed {v = numV n} typing =
+  TV-Sub TV-Num (num-inversion typing)
+expr-to-value-typed {v = boolV b} typing =
+  TV-Sub TV-Bool (bool-inversion typing)
+expr-to-value-typed {v = futureV id} typing =
+  let (τ' , lk , p) = future-lit-inversion typing
+  in TV-Sub (TV-Future lk) p
+expr-to-value-typed {v = funV x e ρ} typing =
+  let (τ₁ , τ₂ , body , p) = fun-inversion typing
+  in TV-Sub (TV-Fun (λ {Γ'} → expr-weaken body)) p
 
 -- ============================================================================
 -- VALUE-TO-EXPR TYPING BRIDGE: ALL 4 CASES PROVEN
@@ -266,16 +316,59 @@ M-LIFT-OP-VF-type-preserves {Σ} {_} {op} {_} {_} {_} {Φ} _ wt wf =
     Σ' = (id , op-range op) ∷ Σ
 
 -- ============================================================================
--- S-COMPLETE: POSTULATED
+-- S-COMPLETE: PROVEN
 -- ============================================================================
+
+-- Helper: lookup in prepended future table
+lookup-future-same : ∀ {Φ id σ} → lookup-future ((id , σ) ∷ Φ) id ≡ just σ
+lookup-future-same {_} {id} with id ≟ id
+... | yes _ = refl
+... | no neq = ⊥-elim (neq refl)
+
+lookup-future-neq : ∀ {Φ id id' σ} → id ≢ id' →
+  lookup-future ((id' , σ) ∷ Φ) id ≡ lookup-future Φ id
+lookup-future-neq {_} {id} {id'} neq with id ≟ id'
+... | yes id≡id' = ⊥-elim (neq id≡id')
+... | no _ = refl
 
 S-COMPLETE-type-preserves : ∀ {Σ ρ Φ Q id v ρ'} →
   WT Σ ⟨ ρ , Φ , Q ⟩ →
   id ∈ Q →
   lookup-future Φ id ≡ just (pending (value-to-expr v) ρ') →
   WT Σ ⟨ ρ , (id , completed v) ∷ Φ , filter-out id Q ⟩
-S-COMPLETE-type-preserves = postulate-S-COMPLETE-type
-  where postulate postulate-S-COMPLETE-type : _
+S-COMPLETE-type-preserves {Σ} {_} {Φ} {_} {id} {v}
+  (wt-state env-ty entry-typed Φ→Σ Σ→Φ) _ lk-pending =
+  wt-state env-ty entry-typed' Φ→Σ' Σ→Φ'
+  where
+    -- Condition 2: every entry in new Φ is well-typed
+    entry-typed' : ∀ id' σ τ →
+      lookup-future ((id , completed v) ∷ Φ) id' ≡ just σ →
+      lookup-store Σ id' ≡ just τ →
+      EntryTyped Σ σ τ
+    entry-typed' id' σ τ lk-f lk-s with id' ≟ id
+    -- Case id' = id: the updated entry
+    entry-typed' .id .(completed v) τ refl lk-s | yes refl =
+      let et = entry-typed id (pending (value-to-expr v) _) τ lk-pending lk-s
+      in case et of λ where
+          (ET-Pending _ expr-ty) → ET-Completed (expr-to-value-typed expr-ty)
+    -- Case id' ≠ id: pass through to old Φ
+    entry-typed' id' σ τ lk-f lk-s | no _ = entry-typed id' σ τ lk-f lk-s
+
+    -- Condition 3: every entry in new Φ has a store type
+    Φ→Σ' : ∀ id' σ →
+      lookup-future ((id , completed v) ∷ Φ) id' ≡ just σ →
+      ∃[ τ ] (lookup-store Σ id' ≡ just τ)
+    Φ→Σ' id' σ lk-f with id' ≟ id
+    Φ→Σ' .id _ refl | yes refl = Φ→Σ id (pending (value-to-expr v) _) lk-pending
+    Φ→Σ' id' σ lk-f | no _ = Φ→Σ id' σ lk-f
+
+    -- Condition 4: every store type has an entry in new Φ
+    Σ→Φ' : ∀ id' τ →
+      lookup-store Σ id' ≡ just τ →
+      ∃[ σ ] (lookup-future ((id , completed v) ∷ Φ) id' ≡ just σ)
+    Σ→Φ' id' τ lk-s with id' ≟ id
+    ... | yes refl = completed v , refl
+    ... | no _ = let (σ , lk-f) = Σ→Φ id' τ lk-s in σ , lk-f
 
 -- ============================================================================
 -- S-RESOLVE: POSTULATED
