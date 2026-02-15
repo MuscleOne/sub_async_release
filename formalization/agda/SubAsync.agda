@@ -49,6 +49,10 @@ mutual
     -- Async
     async : Expr → Expr
 
+    -- Future literal (runtime value embedded as expression)
+    -- Corresponds to Future(id) in the paper
+    future-lit : Id → Expr
+
 mutual
   -- VALUES (runtime values)
   data Value : Set where

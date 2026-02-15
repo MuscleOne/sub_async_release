@@ -6,12 +6,19 @@
 --   The store typing Σ may grow (via ⊇) when new Futures are created.
 --
 -- Status:
---   - M-AWAIT cases: PROVEN (state unchanged, S-Lift recovers type)
---   - M-ASYNC: PROVEN (extends Σ with fresh binding)
---   - M-LIFT-OP: PROVEN (extends Σ, combine function preserves types)
---   - S-COMPLETE: PROVEN (Pending → Completed, value already well-typed)
---   - S-RESOLVE: PROVEN (combine function applied to well-typed values)
---   - S-SCHEDULE: POSTULATED (requires inductive argument on substep)
+--   PROVEN (5 cases):
+--   - ⊇-fresh: store extension via WF+WT freshness (zero postulates)
+--   - M-AWAIT: future-lit inversion + WT + value-to-expr-typed
+--   - M-ASYNC: T-FutureLit + lookup-store-same
+--   - M-LIFT-OP-FF/FV/VF: T-FutureLit + lookup-store-same
+--
+--   POSTULATED (4 cases + 1 bridge + main theorem):
+--   - value-to-expr-typed (funV case only): closure typing bridge
+--   - M-AWAIT-IF: conditional with future guard
+--   - S-COMPLETE: pending value → completed
+--   - S-RESOLVE: combine function typing
+--   - S-SCHEDULE: inductive substep
+--   - type-preserved: main theorem
 
 open import Data.List using (List; []; _∷_; _++_)
 open import Data.List.Membership.Propositional using (_∈_)
@@ -53,120 +60,161 @@ lookup-store-neq Σ id id' τ neq with id ≟ id'
 ... | yes id≡id' = ⊥-elim (neq id≡id')
 ... | no _ = refl
 
--- Extending store typing preserves existing lookups (for fresh ids)
--- In practice, we always extend with fresh-id which is not in dom(Σ).
--- We use a postulate here since the full proof requires connecting
--- fresh-id with StoreTy domain, which mirrors the WF proof structure.
-postulate
-  ⊇-extend : ∀ (Σ : StoreTy) (id : Id) (τ : Ty) →
-    ((id , τ) ∷ Σ) ⊇ Σ
+-- Extract cond5 (AllIdsBelow) from WF
+WF-cond5 : ∀ {ρ Φ Q} → WF ⟨ ρ , Φ , Q ⟩ →
+  (∀ id σ → lookup-future Φ id ≡ just σ → id < fresh-id Φ)
+WF-cond5 (wf-invariant _ _ _ _ cond5 _) = cond5
 
 -- ============================================================================
--- M-AWAIT CASES: State unchanged, expression type preserved via S-Lift
+-- STORE TYPING EXTENSION (⊇-fresh): PROVEN
+-- Replaces the old ⊇-extend postulate.
 -- ============================================================================
 
--- M-AWAIT: Future(id) → v
--- Before: Future(id) : Future<τ> (by TV-Future)
--- After: v : τ (from WT, Completed entry)
--- Preservation: v : τ, and τ <: Future<τ> by S-Lift, so v : Future<τ>
--- The overall type is preserved.
+-- Key insight: fresh-id(Φ) ∉ dom(Σ) follows from two invariants:
+--   WT condition (new): dom(Σ) ⊆ dom(Φ)
+--   WF condition 5:     ∀ id ∈ dom(Φ). id < fresh-id(Φ)
+-- Combined: if fresh-id(Φ) ∈ dom(Σ), then fresh-id(Φ) ∈ dom(Φ),
+-- then fresh-id(Φ) < fresh-id(Φ), contradiction by <-irrefl.
 
-M-AWAIT-type-preserves : ∀ {Σ Γ id v τ s} →
+fresh-not-in-store : ∀ {Σ ρ Φ Q} →
+  WT Σ ⟨ ρ , Φ , Q ⟩ → WF ⟨ ρ , Φ , Q ⟩ →
+  ∀ τ → ¬ (lookup-store Σ (fresh-id Φ) ≡ just τ)
+fresh-not-in-store (wt-state _ _ _ Σ→Φ) (wf-invariant _ _ _ _ cond5 _) τ lk-store =
+  let (σ , lk-future) = Σ→Φ (fresh-id _) τ lk-store
+      id<id = cond5 (fresh-id _) σ lk-future
+  in <-irrefl refl id<id
+
+-- Extending Σ with a fresh id preserves all existing lookups
+⊇-fresh : ∀ {Σ ρ Φ Q τ} →
+  WT Σ ⟨ ρ , Φ , Q ⟩ → WF ⟨ ρ , Φ , Q ⟩ →
+  ((fresh-id Φ , τ) ∷ Σ) ⊇ Σ
+⊇-fresh wt wf = ⊇-prepend-fresh (fresh-not-in-store wt wf)
+
+-- ============================================================================
+-- FUTURE-LIT INVERSION: PROVEN
+-- ============================================================================
+
+-- If future-lit id has type τ, then there exists τ' such that
+-- lookup-store Σ id = just τ' and future-ty τ' <: τ.
+-- Proof by induction on the typing derivation.
+-- Only T-FutureLit and T-Sub can type a future-lit expression.
+
+future-lit-inversion : ∀ {Σ Γ id τ} →
+  Σ ； Γ ⊢ future-lit id ∶ τ →
+  ∃[ τ' ] (lookup-store Σ id ≡ just τ' × future-ty τ' <: τ)
+future-lit-inversion (T-FutureLit lk) = _ , lk , <:-refl
+future-lit-inversion (T-Sub deriv s<:) with future-lit-inversion deriv
+... | τ' , lk , sub₁ = τ' , lk , <:-trans sub₁ s<:
+
+-- ============================================================================
+-- VALUE-TO-EXPR TYPING BRIDGE: 3/4 cases PROVEN, funV POSTULATED
+-- ============================================================================
+
+-- Bridges value typing (Σ ⊢v v ∶ τ) to expression typing (Σ ； Γ ⊢ value-to-expr v ∶ τ).
+-- Three of four value forms are fully proven:
+--   numV  → num  (T-Num)
+--   boolV → bool (T-Bool)
+--   futureV → future-lit (T-FutureLit)   ← enabled by adding future-lit to Expr
+-- The closure case (funV → fun) requires richer closure typing
+-- than the current simplified TV-Fun provides.
+
+-- Helper: extract value typing from completed entry
+extract-completed-typing : ∀ {Σ v τ} → EntryTyped Σ (completed v) τ → Σ ⊢v v ∶ τ
+extract-completed-typing (ET-Completed vt) = vt
+
+value-to-expr-typed : ∀ {Σ Γ v τ} → Σ ⊢v v ∶ τ → Σ ； Γ ⊢ value-to-expr v ∶ τ
+value-to-expr-typed TV-Num = T-Num
+value-to-expr-typed TV-Bool = T-Bool
+value-to-expr-typed (TV-Future lk) = T-FutureLit lk
+value-to-expr-typed TV-Fun = postulate-fun-bridge
+  where postulate postulate-fun-bridge : _
+  -- The closure case requires T-Fun with Σ ； (x,τ₁)∷Γ ⊢ e ∶ τ₂,
+  -- but TV-Fun carries no premises (simplified). A richer TV-Fun
+  -- with a body typing proof would make this case provable.
+value-to-expr-typed (TV-Sub vt s<:) = T-Sub (value-to-expr-typed vt) s<:
+
+-- ============================================================================
+-- M-AWAIT: PROVEN
+-- ============================================================================
+
+-- M-AWAIT: future-lit id → value-to-expr v
+-- Proof:
+--   1. future-lit-inversion: get τ', lookup-store Σ id = just τ', future-ty τ' <: τ
+--   2. From WT entry-typed: Σ ⊢v v ∶ τ' (via ET-Completed)
+--   3. S-Lift + transitivity: τ' <: future-ty τ' <: τ, so τ' <: τ
+--   4. TV-Sub: Σ ⊢v v ∶ τ
+--   5. value-to-expr-typed: Σ ； Γ ⊢ value-to-expr v ∶ τ
+
+M-AWAIT-type-preserves : ∀ {Σ Γ id v τ ρ Φ Q} →
   Σ ； Γ ⊢ value-to-expr (futureV id) ∶ τ →
-  WT Σ s →
-  lookup-future (get-futures s) id ≡ just (completed v) →
+  WT Σ ⟨ ρ , Φ , Q ⟩ →
+  lookup-future Φ id ≡ just (completed v) →
   Σ ； Γ ⊢ value-to-expr v ∶ τ
-M-AWAIT-type-preserves = postulate-M-AWAIT
-  where postulate postulate-M-AWAIT : _
+M-AWAIT-type-preserves {_} {_} {id} {v} {_} typing (wt-state _ entry-typed _ _) lk-completed =
+  -- Step 1: inversion on typing of future-lit id
+  let (τ' , lk-store , ft-sub) = future-lit-inversion typing
+  -- Step 2: from WT, get value typing of v
+      et = entry-typed id (completed v) τ' lk-completed lk-store
+      vt = extract-completed-typing et
+  -- Step 3: derive τ' <: τ via S-Lift + transitivity
+      τ'<:τ = <:-trans <:-lift ft-sub
+  -- Step 4: subsumption on value typing
+      vt-τ = TV-Sub vt τ'<:τ
+  -- Step 5: bridge to expression typing
+  in value-to-expr-typed vt-τ
 
--- M-AWAIT-IF, M-AWAIT-APP1, M-AWAIT-APP2: analogous
--- State unchanged; expression restructured at demand position.
--- S-Unlift ensures the original Future at the demand position was well-typed,
--- and the unwrapped value restores standard typing.
+-- M-AWAIT-IF: if (future-lit id) then e₂ else e₃ → eval-if v e₂ e₃
+-- Postulated: requires T-If inversion + eval-if case analysis on v.
 
-M-AWAIT-IF-type-preserves : ∀ {Σ Γ id v e₂ e₃ τ s} →
+M-AWAIT-IF-type-preserves : ∀ {Σ Γ id v e₂ e₃ τ ρ Φ Q} →
   Σ ； Γ ⊢ if_then_else (value-to-expr (futureV id)) e₂ e₃ ∶ τ →
-  WT Σ s →
-  lookup-future (get-futures s) id ≡ just (completed v) →
+  WT Σ ⟨ ρ , Φ , Q ⟩ →
+  lookup-future Φ id ≡ just (completed v) →
   Σ ； Γ ⊢ eval-if v e₂ e₃ ∶ τ
 M-AWAIT-IF-type-preserves = postulate-M-AWAIT-IF
   where postulate postulate-M-AWAIT-IF : _
 
 -- ============================================================================
--- M-ASYNC: Creates fresh Pending future, extends Σ
+-- M-ASYNC: PROVEN (T-FutureLit + lookup-store-same + ⊇-fresh)
 -- ============================================================================
-
--- When async e fires:
--- - Expression changes from (async e) to Future(id)
--- - State gets new entry: Pending(e, ρ)
--- - Σ extends with id ↦ τ where Γ ⊢ e : τ
---
--- Typing: async e : Future<τ> (by T-Async from Γ ⊢ e : τ)
--- After:  Future(id) : Future<τ> (by TV-Future with Σ'(id) = τ)
--- So expression type Future<τ> is preserved.
 
 M-ASYNC-type-preserves : ∀ {Σ Γ e τ ρ Φ Q} →
   Σ ； Γ ⊢ async e ∶ future-ty τ →
   WT Σ ⟨ ρ , Φ , Q ⟩ →
   WF ⟨ ρ , Φ , Q ⟩ →
-  let id = fresh-id Φ in
-  let Σ' = (id , τ) ∷ Σ in
   ∃[ Σ' ] (Σ' ⊇ Σ ×
-    Σ' ； Γ ⊢ value-to-expr (futureV id) ∶ future-ty τ)
-M-ASYNC-type-preserves {Σ} {Γ} {e} {τ} {ρ} {Φ} {Q} typing wt wf =
-  Σ' , ⊇-extend Σ id τ , result-typed
+    Σ' ； Γ ⊢ value-to-expr (futureV (fresh-id Φ)) ∶ future-ty τ)
+M-ASYNC-type-preserves {Σ} {_} {_} {τ} {_} {Φ} typing wt wf =
+  Σ' , ⊇-fresh wt wf , T-FutureLit (lookup-store-same Σ id τ)
   where
     id = fresh-id Φ
     Σ' = (id , τ) ∷ Σ
-    -- Future(id) has type Future<τ> under Σ' because Σ'(id) = τ
-    result-typed : Σ' ； Γ ⊢ value-to-expr (futureV id) ∶ future-ty τ
-    result-typed = postulate-future-typed
-      where postulate postulate-future-typed : _
-      -- Proof sketch: value-to-expr (futureV id) needs to be typed.
-      -- Since futureV id is a value, we'd use TV-Future with
-      -- lookup-store Σ' id = just τ (by lookup-store-same).
-      -- But value-to-expr converts to Expr, which complicates things.
-      -- In a cleaner formalization, we'd have a direct typing for
-      -- value expressions.
 
 -- ============================================================================
--- M-LIFT-OP: Creates Dependent future, extends Σ
+-- M-LIFT-OP: PROVEN (T-FutureLit + lookup-store-same + ⊇-fresh)
 -- ============================================================================
-
--- When Future(id₁) op Future(id₂) fires:
--- - Expression changes to Future(id) where id = fresh-id Φ
--- - State gets: Dependent([id₁, id₂], f_op)
--- - Σ extends with id ↦ op-range(op)
--- - f_op preserves types by the operator's ground signature
---
--- The T-Lift-Op-FF rule gives type Future<op-range(op)>.
--- After: Future(id) : Future<op-range(op)> under Σ'.
 
 M-LIFT-OP-FF-type-preserves : ∀ {Σ Γ op id₁ id₂ ρ Φ Q} →
   Σ ； Γ ⊢ binop op (value-to-expr (futureV id₁)) (value-to-expr (futureV id₂)) ∶ future-ty (op-range op) →
   WT Σ ⟨ ρ , Φ , Q ⟩ →
   WF ⟨ ρ , Φ , Q ⟩ →
-  let id = fresh-id Φ in
-  let Σ' = (id , op-range op) ∷ Σ in
   ∃[ Σ' ] (Σ' ⊇ Σ ×
-    Σ' ； Γ ⊢ value-to-expr (futureV id) ∶ future-ty (op-range op))
+    Σ' ； Γ ⊢ value-to-expr (futureV (fresh-id Φ)) ∶ future-ty (op-range op))
 M-LIFT-OP-FF-type-preserves {Σ} {_} {op} {_} {_} {_} {Φ} _ wt wf =
-  Σ' , ⊇-extend Σ id τ-result , postulate-result-typed
+  Σ' , ⊇-fresh wt wf , T-FutureLit (lookup-store-same Σ id τr)
   where
     id = fresh-id Φ
-    τ-result = op-range op
-    Σ' = (id , τ-result) ∷ Σ
-    postulate postulate-result-typed : _
+    τr = op-range op
+    Σ' = (id , τr) ∷ Σ
 
--- FV and VF cases are analogous
 M-LIFT-OP-FV-type-preserves : ∀ {Σ Γ op id₁ v₂ ρ Φ Q} →
   Σ ； Γ ⊢ binop op (value-to-expr (futureV id₁)) (value-to-expr v₂) ∶ future-ty (op-range op) →
   WT Σ ⟨ ρ , Φ , Q ⟩ →
-  let id = fresh-id Φ in
-  let Σ' = (id , op-range op) ∷ Σ in
-  ∃[ Σ' ] (Σ' ⊇ Σ)
-M-LIFT-OP-FV-type-preserves {Σ} {_} {op} {_} {_} {_} {Φ} _ wt =
-  Σ' , ⊇-extend Σ id (op-range op)
+  WF ⟨ ρ , Φ , Q ⟩ →
+  ∃[ Σ' ] (Σ' ⊇ Σ ×
+    Σ' ； Γ ⊢ value-to-expr (futureV (fresh-id Φ)) ∶ future-ty (op-range op))
+M-LIFT-OP-FV-type-preserves {Σ} {_} {op} {_} {_} {_} {Φ} _ wt wf =
+  Σ' , ⊇-fresh wt wf , T-FutureLit (lookup-store-same Σ id (op-range op))
   where
     id = fresh-id Φ
     Σ' = (id , op-range op) ∷ Σ
@@ -174,30 +222,18 @@ M-LIFT-OP-FV-type-preserves {Σ} {_} {op} {_} {_} {_} {Φ} _ wt =
 M-LIFT-OP-VF-type-preserves : ∀ {Σ Γ op v₁ id₂ ρ Φ Q} →
   Σ ； Γ ⊢ binop op (value-to-expr v₁) (value-to-expr (futureV id₂)) ∶ future-ty (op-range op) →
   WT Σ ⟨ ρ , Φ , Q ⟩ →
-  let id = fresh-id Φ in
-  let Σ' = (id , op-range op) ∷ Σ in
-  ∃[ Σ' ] (Σ' ⊇ Σ)
-M-LIFT-OP-VF-type-preserves {Σ} {_} {op} {_} {_} {_} {Φ} _ wt =
-  Σ' , ⊇-extend Σ id (op-range op)
+  WF ⟨ ρ , Φ , Q ⟩ →
+  ∃[ Σ' ] (Σ' ⊇ Σ ×
+    Σ' ； Γ ⊢ value-to-expr (futureV (fresh-id Φ)) ∶ future-ty (op-range op))
+M-LIFT-OP-VF-type-preserves {Σ} {_} {op} {_} {_} {_} {Φ} _ wt wf =
+  Σ' , ⊇-fresh wt wf , T-FutureLit (lookup-store-same Σ id (op-range op))
   where
     id = fresh-id Φ
     Σ' = (id , op-range op) ∷ Σ
 
 -- ============================================================================
--- S-COMPLETE: Pending(v) → Completed(v), WT maintained
+-- S-COMPLETE: POSTULATED
 -- ============================================================================
-
--- When S-COMPLETE fires:
--- - Expression unchanged
--- - Φ gets: (id, completed v) prepended (shadowing old pending)
--- - Q: id removed
--- - Σ unchanged
---
--- WT maintained because:
--- - The value v was the expression in Pending(v, ρ)
--- - By ET-Pending, v had type Σ(id) under some typed environment
--- - Since v is a value, we get v : Σ(id) (value typing)
--- - So ET-Completed holds
 
 S-COMPLETE-type-preserves : ∀ {Σ ρ Φ Q id v ρ'} →
   WT Σ ⟨ ρ , Φ , Q ⟩ →
@@ -206,31 +242,10 @@ S-COMPLETE-type-preserves : ∀ {Σ ρ Φ Q id v ρ'} →
   WT Σ ⟨ ρ , (id , completed v) ∷ Φ , filter-out id Q ⟩
 S-COMPLETE-type-preserves = postulate-S-COMPLETE-type
   where postulate postulate-S-COMPLETE-type : _
-  -- Proof sketch:
-  -- For the new entry (id, completed v):
-  --   By WT of old state: Pending(value-to-expr v, ρ') has type Σ(id)
-  --   This means value-to-expr v : Σ(id) under typed ρ'
-  --   Since v is a value, we get v : Σ(id) (value typing)
-  --   So completed v satisfies ET-Completed with type Σ(id) ✓
-  -- For other entries (id' ≠ id):
-  --   Lookup in (id, completed v) ∷ Φ falls through to Φ
-  --   Same WT condition as before ✓
 
 -- ============================================================================
--- S-RESOLVE: Dependent → Completed, WT maintained
+-- S-RESOLVE: POSTULATED
 -- ============================================================================
-
--- When S-RESOLVE fires:
--- - Expression unchanged
--- - Φ gets: (id, completed (f(collect(Φ, deps)))) prepended
--- - Σ unchanged
---
--- WT maintained because:
--- - Old entry was Dependent(deps, f) with type Σ(id)
--- - By ET-Dependent, f maps values of types Σ(dep₁),...,Σ(depₙ) to type Σ(id)
--- - All deps are Completed (premise of S-RESOLVE)
--- - By WT, each completed value has its assigned type
--- - So f(collect(Φ, deps)) has type Σ(id) ✓
 
 S-RESOLVE-type-preserves : ∀ {Σ ρ Φ Q id deps combine vs} →
   WT Σ ⟨ ρ , Φ , Q ⟩ →
@@ -241,17 +256,8 @@ S-RESOLVE-type-preserves = postulate-S-RESOLVE-type
   where postulate postulate-S-RESOLVE-type : _
 
 -- ============================================================================
--- S-SCHEDULE: Most complex case - substep preserves WT
+-- S-SCHEDULE: POSTULATED
 -- ============================================================================
-
--- When S-SCHEDULE fires:
--- - Expression unchanged
--- - A substep executes inside a pending future's expression
--- - The substep may create new Futures (extending Φ and Q)
--- - By induction on the substep, WT is preserved for the sub-configuration
--- - The merged state inherits WT from the substep's result
---
--- This is the most complex case and mirrors S-SCHEDULE in WF preservation.
 
 postulate
   S-SCHEDULE-type-preserves : ∀ {Σ ρ Φ Q id e' ρ' e'' s''} →
@@ -267,10 +273,6 @@ postulate
 -- MAIN THEOREM: TYPE PRESERVATION
 -- ============================================================================
 
--- Theorem (Type Preservation):
--- If Σ; Γ ⊢ e : τ, WT(Σ, s), WF(s), and ⟨e, s⟩ → ⟨e', s'⟩,
--- then ∃ Σ' ⊇ Σ such that Σ'; Γ ⊢ e' : τ and WT(Σ', s').
-
 postulate
   type-preserved : ∀ {Σ Γ e τ s e' s'} →
     Σ ； Γ ⊢ e ∶ τ →
@@ -279,17 +281,5 @@ postulate
     ⟪ e , s ⟫ ⟶ ⟪ e' , s' ⟫ →
     ∃[ Σ' ] (Σ' ⊇ Σ × Σ' ； Γ ⊢ e' ∶ τ × WT Σ' s')
 
--- The proof follows by case analysis on the reduction rule ⟨e, s⟩ → ⟨e', s'⟩.
--- Each case is handled by the lemmas above:
---
--- Case M-ASYNC:       M-ASYNC-type-preserves
--- Case M-LIFT-OP-FF:  M-LIFT-OP-FF-type-preserves
--- Case M-LIFT-OP-FV:  M-LIFT-OP-FV-type-preserves
--- Case M-LIFT-OP-VF:  M-LIFT-OP-VF-type-preserves
--- Case M-AWAIT:       M-AWAIT-type-preserves (Σ unchanged)
--- Case M-AWAIT-IF:    M-AWAIT-IF-type-preserves (Σ unchanged)
--- Case M-AWAIT-APP1:  analogous to M-AWAIT
--- Case M-AWAIT-APP2:  analogous to M-AWAIT
--- Case S-COMPLETE:    S-COMPLETE-type-preserves (Σ unchanged)
--- Case S-RESOLVE:     S-RESOLVE-type-preserves (Σ unchanged)
--- Case S-SCHEDULE:    S-SCHEDULE-type-preserves (Σ may grow)
+-- PROVEN: M-ASYNC, M-LIFT-OP-FF/FV/VF, M-AWAIT
+-- POSTULATED: M-AWAIT-IF, S-COMPLETE, S-RESOLVE, S-SCHEDULE

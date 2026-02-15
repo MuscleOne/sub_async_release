@@ -146,6 +146,12 @@ data _；_⊢_∶_ : StoreTy → TyCtx → Expr → Ty → Set where
   T-Bool : ∀ {Σ Γ b} →
     Σ ； Γ ⊢ bool b ∶ bool-ty
 
+  -- T-FUTURE-LIT: Future literal has Future type
+  -- Corresponds to TV-Future for expressions
+  T-FutureLit : ∀ {Σ Γ id τ} →
+    lookup-store Σ id ≡ just τ →
+    Σ ； Γ ⊢ future-lit id ∶ future-ty τ
+
   -- T-ASYNC: async wraps in Future
   T-Async : ∀ {Σ Γ e τ} →
     Σ ； Γ ⊢ e ∶ τ →
@@ -253,6 +259,11 @@ data WT : StoreTy → State → Set where
     (∀ id σ →
       lookup-future Φ id ≡ just σ →
       ∃[ τ ] (lookup-store Σ id ≡ just τ)) →
+    -- Store typing domain is contained in Future table domain
+    -- (ensures fresh-id(Φ) ∉ dom(Σ), needed for ⊇-extend)
+    (∀ id τ →
+      lookup-store Σ id ≡ just τ →
+      ∃[ σ ] (lookup-future Φ id ≡ just σ)) →
     WT Σ ⟨ ρ , Φ , Q ⟩
 
 -- ============================================================================

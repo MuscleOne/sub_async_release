@@ -59,8 +59,7 @@ eval-if _ e₂ e₃ = e₂  -- default case (error handling)
 value-to-expr : Value → Expr
 value-to-expr (numV n) = num n
 value-to-expr (boolV b) = bool b
-value-to-expr (futureV id) = var (postulate-var-from-id id)  -- simplified
-  where postulate postulate-var-from-id : Id → Var
+value-to-expr (futureV id) = future-lit id
 value-to-expr (funV x e ρ) = fun x e  -- ignore captured env for now
 
 -- Helper: collect values from completed futures
