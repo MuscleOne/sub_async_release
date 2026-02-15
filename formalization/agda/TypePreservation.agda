@@ -138,12 +138,38 @@ fun-inversion (T-Sub d s<:) with fun-inversion d
 -- ============================================================================
 
 -- Closure value typing bridge.
+--
+-- SEMANTIC JUSTIFICATION:
 -- When `fun x e` is typeable in some context Γ, the closure `funV x e ρ`
 -- (which captures runtime bindings for free variables in e) is a well-typed
 -- value. This is a semantic property of closure semantics: ρ provides
 -- runtime bindings that correspond to the typing context Γ.
--- We postulate this because the Agda formalization does not model the
--- connection between runtime environments (Env) and typing contexts (Ctx).
+--
+-- WHY IS THIS A POSTULATE?
+-- The Agda formalization does not model the connection between runtime
+-- environments (Env) and typing contexts (Ctx). Specifically:
+-- - `value-to-expr (funV x e ρ) = fun x e` DROPS the environment ρ
+-- - TV-Fun requires `∀{Γ'} → Σ ； ((x,τ₁)∷Γ') ⊢ e ∶ τ₂` (context-polymorphic)
+-- - But `fun-inversion` only gives a specific Γ
+--
+-- CORRECTNESS ARGUMENT:
+-- In actual execution, `funV x e ρ` always satisfies: ρ binds all free
+-- variables in e (except x). This is guaranteed by the evaluation rules.
+-- However, our formalization has no `EnvTyped ρ Γ` relation to express this.
+--
+-- COMPARISON WITH expr-weaken:
+-- The original attempt used `expr-weaken : Σ；Γ ⊢ e ∶ τ → Σ；Γ' ⊢ e ∶ τ`,
+-- which is PROVABLY FALSE for arbitrary Γ' (counterexample: `x+y` typed in
+-- [(x,int),(y,int)] but not in []). The current `funV-typing` is much
+-- narrower (only for closures) and semantically justified (closures capture
+-- their environment), making it the "least incorrect" postulate.
+--
+-- TO ELIMINATE THIS POSTULATE:
+-- Would require either:
+-- 1. Add EnvTyped premise to TV-Fun: `EnvTyped Σ ρ Γ → ...`
+-- 2. Introduce a well-typed closure invariant throughout evaluation
+-- 3. Change EntryTyped to store value typing instead of expression typing
+-- All options require substantial refactoring beyond the current scope.
 postulate
   funV-typing : ∀ {Σ Γ x e ρ τ} →
     Σ ； Γ ⊢ fun x e ∶ τ →
