@@ -6,15 +6,15 @@
 --   The store typing Σ may grow (via ⊇) when new Futures are created.
 --
 -- Status:
---   PROVEN (5 cases):
+--   PROVEN (6 cases):
 --   - ⊇-fresh: store extension via WF+WT freshness (zero postulates)
 --   - M-AWAIT: future-lit inversion + WT + value-to-expr-typed
+--   - M-AWAIT-IF: if-inversion + eval-if case analysis (zero postulates)
 --   - M-ASYNC: T-FutureLit + lookup-store-same
 --   - M-LIFT-OP-FF/FV/VF: T-FutureLit + lookup-store-same
 --
---   POSTULATED (4 cases + 1 bridge + main theorem):
+--   POSTULATED (3 cases + 1 bridge + main theorem):
 --   - value-to-expr-typed (funV case only): closure typing bridge
---   - M-AWAIT-IF: conditional with future guard
 --   - S-COMPLETE: pending value → completed
 --   - S-RESOLVE: combine function typing
 --   - S-SCHEDULE: inductive substep
@@ -24,6 +24,7 @@ open import Data.List using (List; []; _∷_; _++_)
 open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.Any using (here; there)
+open import Data.Bool using (Bool; true; false)
 open import Data.Maybe using (just; nothing)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
 open import Data.Unit using (⊤; tt)
@@ -163,16 +164,54 @@ M-AWAIT-type-preserves {_} {_} {id} {v} {_} typing (wt-state _ entry-typed _ _) 
   -- Step 5: bridge to expression typing
   in value-to-expr-typed vt-τ
 
+-- ============================================================================
+-- IF-INVERSION LEMMA
+-- ============================================================================
+
+-- If `if e₁ then e₂ else e₃` has type τ, then there exists τ' such that
+-- e₁ has type bool, both branches have type τ', and τ' <: τ.
+-- Proof by induction on the derivation (only T-If and T-Sub apply).
+if-inversion : ∀ {Σ Γ e₁ e₂ e₃ τ} →
+  Σ ； Γ ⊢ if_then_else e₁ e₂ e₃ ∶ τ →
+  ∃[ τ' ] (Σ ； Γ ⊢ e₁ ∶ bool-ty × Σ ； Γ ⊢ e₂ ∶ τ' × Σ ； Γ ⊢ e₃ ∶ τ' × τ' <: τ)
+if-inversion (T-If cond t-br f-br) = _ , cond , t-br , f-br , <:-refl
+if-inversion (T-Sub deriv s<:) with if-inversion deriv
+... | τ' , cond , t-br , f-br , p = τ' , cond , t-br , f-br , <:-trans p s<:
+
+-- ============================================================================
+-- EVAL-IF TYPING HELPER
+-- ============================================================================
+
+-- eval-if always returns one of the two branches.
+-- Case split mirrors the definition of eval-if in Reductions.agda.
+eval-if-typed : ∀ {Σ Γ e₂ e₃ τ} → (v : Value) →
+  Σ ； Γ ⊢ e₂ ∶ τ →
+  Σ ； Γ ⊢ e₃ ∶ τ →
+  Σ ； Γ ⊢ eval-if v e₂ e₃ ∶ τ
+eval-if-typed (boolV true)    t₂ t₃ = t₂
+eval-if-typed (boolV false)   t₂ t₃ = t₃
+eval-if-typed (numV _)        t₂ t₃ = t₂
+eval-if-typed (funV _ _ _)    t₂ t₃ = t₂
+eval-if-typed (futureV _)     t₂ t₃ = t₂
+
+-- ============================================================================
+-- M-AWAIT-IF: PROVEN
+-- ============================================================================
+
 -- M-AWAIT-IF: if (future-lit id) then e₂ else e₃ → eval-if v e₂ e₃
--- Postulated: requires T-If inversion + eval-if case analysis on v.
+-- Proof:
+--   1. if-inversion: extract branch typings τ' and subtyping τ' <: τ
+--   2. eval-if-typed: both branches have type τ', so eval-if v e₂ e₃ ∶ τ'
+--   3. T-Sub: subsume from τ' to τ
 
 M-AWAIT-IF-type-preserves : ∀ {Σ Γ id v e₂ e₃ τ ρ Φ Q} →
   Σ ； Γ ⊢ if_then_else (value-to-expr (futureV id)) e₂ e₃ ∶ τ →
   WT Σ ⟨ ρ , Φ , Q ⟩ →
   lookup-future Φ id ≡ just (completed v) →
   Σ ； Γ ⊢ eval-if v e₂ e₃ ∶ τ
-M-AWAIT-IF-type-preserves = postulate-M-AWAIT-IF
-  where postulate postulate-M-AWAIT-IF : _
+M-AWAIT-IF-type-preserves {v = v} typing wt lk-completed =
+  let (τ' , _ , t-br , f-br , p) = if-inversion typing
+  in T-Sub (eval-if-typed v t-br f-br) p
 
 -- ============================================================================
 -- M-ASYNC: PROVEN (T-FutureLit + lookup-store-same + ⊇-fresh)
