@@ -16,9 +16,8 @@
 --   - M-LIFT-OP-FF/FV/VF: T-FutureLit + lookup-store-same
 --   - S-COMPLETE: expr-to-value-typed + WT reconstruction
 --
---   POSTULATED (2 cases + 1 semantic bridge + main theorem):
+--   POSTULATED (1 case + 1 semantic bridge + main theorem):
 --   - funV-typing: closure value typing bridge (semantic, only for funV)
---   - S-RESOLVE: combine function typing
 --   - S-SCHEDULE: inductive substep
 --   - type-preserved: main theorem
 
@@ -69,25 +68,65 @@ WF-cond5 : ∀ {ρ Φ Q} → WF ⟨ ρ , Φ , Q ⟩ →
 WF-cond5 (wf-invariant _ _ _ _ cond5 _) = cond5
 
 -- ============================================================================
--- COMBINE FUNCTION TYPING (postulated)
+-- COMBINE FUNCTION TYPING: PROVEN
+-- Previously these were FALSE postulates (combine with numV 0 fallback was
+-- unsound for lt/eq which return bool-ty). Now uses op-default for type-correct
+-- defaults, and all three lemmas are fully proven.
 -- ============================================================================
 
--- The combine functions (combine-binary, combine-unary-left, combine-unary-right)
--- are defined in Reductions.agda and always return a value (using numV 0 as fallback).
--- We postulate that they return values of the correct type based on the operator.
--- A full proof would require either:
---   1. Refining combine functions to return type-correct default values
---   2. Adding runtime type checks in the semantics
---   3. Restricting M-LIFT-OP to only well-typed futures
-postulate
-  combine-binary-typed : ∀ {Σ op} → (vs : List Value) →
+-- Default value for each op has the correct type
+op-default-typed : ∀ {Σ} → (op : Op) → Σ ⊢v op-default op ∶ op-range op
+op-default-typed add = TV-Num
+op-default-typed sub = TV-Num
+op-default-typed mul = TV-Num
+op-default-typed div = TV-Num
+op-default-typed lt  = TV-Bool
+op-default-typed eq  = TV-Bool
+
+-- When apply-op succeeds, the result has the correct type.
+-- Proof by case analysis on op, v₁, v₂.
+apply-op-typed : ∀ {Σ} → (op : Op) → (v₁ v₂ v : Value) →
+  apply-op op v₁ v₂ ≡ just v → Σ ⊢v v ∶ op-range op
+-- Success cases: both arguments are numV
+apply-op-typed add (numV m) (numV n) _ refl = TV-Num
+apply-op-typed sub (numV m) (numV n) _ refl = TV-Num
+apply-op-typed mul (numV m) (numV n) _ refl = TV-Num
+apply-op-typed div (numV _) (numV 0) _ ()
+apply-op-typed div (numV m) (numV (suc n)) _ refl = TV-Num
+apply-op-typed lt  (numV m) (numV n) _ refl = TV-Bool
+apply-op-typed eq  (numV m) (numV n) _ refl = TV-Bool
+-- Absurd: first value arg is not numV (apply-op returns nothing)
+apply-op-typed _ (boolV _) _ _ ()
+apply-op-typed _ (futureV _) _ _ ()
+apply-op-typed _ (funV _ _ _) _ _ ()
+-- Absurd: first value arg is numV but second is not
+apply-op-typed _ (numV _) (boolV _) _ ()
+apply-op-typed _ (numV _) (futureV _) _ ()
+apply-op-typed _ (numV _) (funV _ _ _) _ ()
+
+-- combine-binary produces correct type for 2-element lists
+combine-binary-typed : ∀ {Σ op} → (vs : List Value) →
     length vs ≡ 2 → Σ ⊢v combine-binary op vs ∶ op-range op
-  
-  combine-unary-left-typed : ∀ {Σ op v₂} → (vs : List Value) →
+combine-binary-typed {Σ} {op} (v₁ ∷ v₂ ∷ []) refl
+  with apply-op op v₁ v₂ | inspect (apply-op op v₁) v₂
+... | just v  | [ eq ] = apply-op-typed op v₁ v₂ v eq
+... | nothing | _      = op-default-typed op
+
+-- combine-unary-left produces correct type for 1-element lists
+combine-unary-left-typed : ∀ {Σ op v₂} → (vs : List Value) →
     length vs ≡ 1 → Σ ⊢v combine-unary-left op v₂ vs ∶ op-range op
-  
-  combine-unary-right-typed : ∀ {Σ op v₁} → (vs : List Value) →
+combine-unary-left-typed {Σ} {op} {v₂} (v₁ ∷ []) refl
+  with apply-op op v₁ v₂ | inspect (apply-op op v₁) v₂
+... | just v  | [ eq ] = apply-op-typed op v₁ v₂ v eq
+... | nothing | _      = op-default-typed op
+
+-- combine-unary-right produces correct type for 1-element lists
+combine-unary-right-typed : ∀ {Σ op v₁} → (vs : List Value) →
     length vs ≡ 1 → Σ ⊢v combine-unary-right op v₁ vs ∶ op-range op
+combine-unary-right-typed {Σ} {op} {v₁} (v₂ ∷ []) refl
+  with apply-op op v₁ v₂ | inspect (apply-op op v₁) v₂
+... | just v  | [ eq ] = apply-op-typed op v₁ v₂ v eq
+... | nothing | _      = op-default-typed op
 
 -- ============================================================================
 -- STORE TYPING EXTENSION (⊇-fresh): PROVEN
@@ -427,11 +466,19 @@ just-injective refl = refl
 -- S-RESOLVE: PROVEN
 -- ============================================================================
 
--- Helper: collect-values preserves length
+-- Helper: collect-values preserves length (proven by structural induction)
 collect-values-length : ∀ {Φ : FutureTable} {deps : List Id} {vs : List Value} →
   collect-values Φ deps ≡ just vs → length vs ≡ length deps
-collect-values-length = collect-values-length-postulate
-  where postulate collect-values-length-postulate : _
+collect-values-length {_} {[]} refl = refl
+collect-values-length {Φ} {id ∷ ids} eq with lookup-future Φ id
+collect-values-length {_} {_ ∷ _} () | just (pending _ _)
+collect-values-length {_} {_ ∷ _} () | just (dependent _ _)
+collect-values-length {_} {_ ∷ _} () | nothing
+collect-values-length {Φ} {_ ∷ ids} eq | just (completed v)
+  with collect-values Φ ids | inspect (collect-values Φ) ids
+collect-values-length {_} {_ ∷ _} () | just (completed _) | nothing | _
+collect-values-length {_} {_ ∷ ids} refl | just (completed _) | just vs' | [ eqc ] =
+  cong suc (collect-values-length eqc)
 
 S-RESOLVE-type-preserves : ∀ {Σ ρ Φ Q id deps combine vs} →
   WT Σ ⟨ ρ , Φ , Q ⟩ →
@@ -518,5 +565,6 @@ postulate
     ⟪ e , s ⟫ ⟶ ⟪ e' , s' ⟫ →
     ∃[ Σ' ] (Σ' ⊇ Σ × Σ' ； Γ ⊢ e' ∶ τ × WT Σ' s')
 
--- PROVEN: M-ASYNC, M-LIFT-OP-FF/FV/VF, M-AWAIT
--- POSTULATED: M-AWAIT-IF, S-COMPLETE, S-RESOLVE, S-SCHEDULE
+-- PROVEN: M-ASYNC, M-LIFT-OP-FF/FV/VF, M-AWAIT, M-AWAIT-IF, S-COMPLETE, S-RESOLVE
+-- PROVEN (previously postulated): combine-*-typed, collect-values-length
+-- POSTULATED: S-SCHEDULE, type-preserved (main theorem), funV-typing (semantic bridge)

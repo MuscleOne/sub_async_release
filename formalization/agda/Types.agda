@@ -247,8 +247,8 @@ data EntryTyped (Σ : StoreTy) : Status → Ty → Set where
   -- We require that:
   --  1. All dependencies have types in the store
   --  2. For any value list of the correct length, f produces a well-typed result
-  -- This is satisfied by combine-binary/unary functions, which always return
-  -- a value (using numV 0 as fallback), though the type may vary based on the operator.
+  -- This is satisfied by combine-binary/unary functions, which use op-default
+  -- as fallback (type-correct for each operator). See TypePreservation.agda.
   ET-Dependent : ∀ {deps f τ} →
     All (λ id → ∃[ τ' ] (lookup-store Σ id ≡ just τ')) deps →
     (∀ vs → length vs ≡ length deps → Σ ⊢v f vs ∶ τ) →

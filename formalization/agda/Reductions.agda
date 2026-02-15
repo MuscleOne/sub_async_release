@@ -26,24 +26,34 @@ apply-op lt  (numV m) (numV n) = just (boolV (m <ᵇ n))
 apply-op eq  (numV m) (numV n) = just (boolV (m ≡ᵇ n))
 apply-op _ _ _ = nothing  -- type mismatch
 
+-- Default value for each operator (type-correct fallback)
+-- Returns a value whose type matches op-range op.
+op-default : Op → Value
+op-default add = numV 0
+op-default sub = numV 0
+op-default mul = numV 0
+op-default div = numV 0
+op-default lt  = boolV false
+op-default eq  = boolV false
+
 -- Simplified combine functions (avoiding complex pattern matching)
 combine-binary : Op → List Value → Value  
 combine-binary op (v₁ ∷ v₂ ∷ []) with apply-op op v₁ v₂
 ... | just v = v
-... | nothing = numV 0  -- error case
-combine-binary op _ = numV 0  -- wrong arity
+... | nothing = op-default op
+combine-binary op _ = op-default op
 
 combine-unary-left : Op → Value → List Value → Value
 combine-unary-left op v₂ (v₁ ∷ []) with apply-op op v₁ v₂  
 ... | just v = v
-... | nothing = numV 0
-combine-unary-left op v₂ _ = numV 0
+... | nothing = op-default op
+combine-unary-left op v₂ _ = op-default op
 
 combine-unary-right : Op → Value → List Value → Value  
 combine-unary-right op v₁ (v₂ ∷ []) with apply-op op v₁ v₂
 ... | just v = v  
-... | nothing = numV 0
-combine-unary-right op v₁ _ = numV 0
+... | nothing = op-default op
+combine-unary-right op v₁ _ = op-default op
 
 -- For now, application is left as postulate (need full λ-calculus)
 postulate eval-app : Value → Expr → Expr
