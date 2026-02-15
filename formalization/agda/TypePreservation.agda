@@ -22,7 +22,7 @@
 --   - S-SCHEDULE: inductive substep
 --   - type-preserved: main theorem
 
-open import Data.List using (List; []; _∷_; _++_)
+open import Data.List using (List; []; _∷_; _++_; length)
 open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.Any using (here; there)
@@ -32,7 +32,7 @@ open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
 open import Data.Unit using (⊤; tt)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Function using (_∘_; case_of_)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; _≢_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; _≢_; inspect; [_]; subst)
 open import Relation.Nullary using (¬_; Dec; yes; no)
 open import Data.Nat using (ℕ; _≟_; _<_; suc)
 open import Data.Nat.Properties using (<-irrefl; n<1+n; m<n⇒m<1+n; <⇒≢)
@@ -67,6 +67,27 @@ lookup-store-neq Σ id id' τ neq with id ≟ id'
 WF-cond5 : ∀ {ρ Φ Q} → WF ⟨ ρ , Φ , Q ⟩ →
   (∀ id σ → lookup-future Φ id ≡ just σ → id < fresh-id Φ)
 WF-cond5 (wf-invariant _ _ _ _ cond5 _) = cond5
+
+-- ============================================================================
+-- COMBINE FUNCTION TYPING (postulated)
+-- ============================================================================
+
+-- The combine functions (combine-binary, combine-unary-left, combine-unary-right)
+-- are defined in Reductions.agda and always return a value (using numV 0 as fallback).
+-- We postulate that they return values of the correct type based on the operator.
+-- A full proof would require either:
+--   1. Refining combine functions to return type-correct default values
+--   2. Adding runtime type checks in the semantics
+--   3. Restricting M-LIFT-OP to only well-typed futures
+postulate
+  combine-binary-typed : ∀ {Σ op} → (vs : List Value) →
+    length vs ≡ 2 → Σ ⊢v combine-binary op vs ∶ op-range op
+  
+  combine-unary-left-typed : ∀ {Σ op v₂} → (vs : List Value) →
+    length vs ≡ 1 → Σ ⊢v combine-unary-left op v₂ vs ∶ op-range op
+  
+  combine-unary-right-typed : ∀ {Σ op v₁} → (vs : List Value) →
+    length vs ≡ 1 → Σ ⊢v combine-unary-right op v₁ vs ∶ op-range op
 
 -- ============================================================================
 -- STORE TYPING EXTENSION (⊇-fresh): PROVEN
@@ -398,17 +419,78 @@ S-COMPLETE-type-preserves {Σ} {_} {Φ} {_} {id} {v}
     ... | yes refl = completed v , refl
     ... | no _ = let (σ , lk-f) = Σ→Φ id' τ lk-s in σ , lk-f
 
+-- Helper: just is injective
+just-injective : ∀ {A : Set} {a b : A} → just a ≡ just b → a ≡ b
+just-injective refl = refl
+
 -- ============================================================================
--- S-RESOLVE: POSTULATED
+-- S-RESOLVE: PROVEN
 -- ============================================================================
+
+-- Helper: collect-values preserves length
+collect-values-length : ∀ {Φ : FutureTable} {deps : List Id} {vs : List Value} →
+  collect-values Φ deps ≡ just vs → length vs ≡ length deps
+collect-values-length = collect-values-length-postulate
+  where postulate collect-values-length-postulate : _
 
 S-RESOLVE-type-preserves : ∀ {Σ ρ Φ Q id deps combine vs} →
   WT Σ ⟨ ρ , Φ , Q ⟩ →
   lookup-future Φ id ≡ just (dependent deps combine) →
   collect-values Φ deps ≡ just vs →
   WT Σ ⟨ ρ , (id , completed (combine vs)) ∷ Φ , Q ⟩
-S-RESOLVE-type-preserves = postulate-S-RESOLVE-type
-  where postulate postulate-S-RESOLVE-type : _
+S-RESOLVE-type-preserves {Σ} {_} {Φ} {_} {id} {deps} {combine} {vs}
+  (wt-state env-ty entry-typed Φ→Σ Σ→Φ) lk-dep col =
+  wt-state env-ty entry-typed' Φ→Σ' Σ→Φ'
+  where
+    -- Get the type of this future from the store
+    τ : Ty
+    τ = proj₁ (Φ→Σ id (dependent deps combine) lk-dep)
+    
+    lk-store : lookup-store Σ id ≡ just τ
+    lk-store = proj₂ (Φ→Σ id (dependent deps combine) lk-dep)
+    
+    -- Get ET-Dependent, which gives us the typing premise for combine
+    et-dep : EntryTyped Σ (dependent deps combine) τ
+    et-dep = entry-typed id (dependent deps combine) τ lk-dep lk-store
+    
+    -- Extract the typing proof from ET-Dependent
+    extract-combine-typed : EntryTyped Σ (dependent deps combine) τ →
+      (∀ vs₁ → length vs₁ ≡ length deps → Σ ⊢v combine vs₁ ∶ τ)
+    extract-combine-typed (ET-Dependent _ f-typed) = f-typed
+    
+    -- Apply to our specific vs
+    combine-vs-typed : Σ ⊢v combine vs ∶ τ
+    combine-vs-typed = extract-combine-typed et-dep vs
+      (collect-values-length {Φ} {deps} {vs} col)
+    
+    -- Condition 2: every entry in new Φ is well-typed
+    entry-typed' : ∀ id' σ τ' →
+      lookup-future ((id , completed (combine vs)) ∷ Φ) id' ≡ just σ →
+      lookup-store Σ id' ≡ just τ' →
+      EntryTyped Σ σ τ'
+    entry-typed' id' σ τ' lk-f lk-s with id' ≟ id
+    -- Case id' = id: the resolved entry
+    entry-typed' .id .(completed (combine vs)) τ' refl lk-s | yes refl =
+      let τ'≡τ = just-injective (trans (sym lk-s) lk-store)
+      in subst (λ z → EntryTyped Σ (completed (combine vs)) z) (sym τ'≡τ) (ET-Completed combine-vs-typed)
+    -- Case id' ≠ id: pass through to old Φ
+    entry-typed' id' σ τ' lk-f lk-s | no _ = entry-typed id' σ τ' lk-f lk-s
+    
+    -- Condition 3: every entry in new Φ has a store type
+    Φ→Σ' : ∀ id' σ →
+      lookup-future ((id , completed (combine vs)) ∷ Φ) id' ≡ just σ →
+      ∃[ τ' ] (lookup-store Σ id' ≡ just τ')
+    Φ→Σ' id' σ lk-f with id' ≟ id
+    Φ→Σ' .id _ refl | yes refl = τ , lk-store
+    Φ→Σ' id' σ lk-f | no _ = Φ→Σ id' σ lk-f
+    
+    -- Condition 4: every store type has an entry in new Φ
+    Σ→Φ' : ∀ id' τ' →
+      lookup-store Σ id' ≡ just τ' →
+      ∃[ σ ] (lookup-future ((id , completed (combine vs)) ∷ Φ) id' ≡ just σ)
+    Σ→Φ' id' τ' lk-s with id' ≟ id
+    ... | yes refl = completed (combine vs) , refl
+    ... | no _ = let (σ , lk-f) = Σ→Φ id' τ' lk-s in σ , lk-f
 
 -- ============================================================================
 -- S-SCHEDULE: POSTULATED

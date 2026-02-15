@@ -4,6 +4,7 @@
 open import Data.Nat using (ℕ; zero; suc; _≟_)
 open import Data.Bool using (Bool; true; false)
 open import Data.List using (List; []; _∷_; length)
+open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
 open import Data.Empty using (⊥; ⊥-elim)
@@ -242,12 +243,15 @@ data EntryTyped (Σ : StoreTy) : Status → Ty → Set where
     EntryTyped Σ (completed v) τ
 
   -- Dependent(ids, f): combine function maps dep types to result type
-  -- (the typing of f is ensured by construction from M-LIFT-OP)
+  -- The typing of f is ensured by construction from M-LIFT-OP rules.
+  -- We require that:
+  --  1. All dependencies have types in the store
+  --  2. For any value list of the correct length, f produces a well-typed result
+  -- This is satisfied by combine-binary/unary functions, which always return
+  -- a value (using numV 0 as fallback), though the type may vary based on the operator.
   ET-Dependent : ∀ {deps f τ} →
-    -- For all completed values v₁,...,vₙ of types Σ(id₁),...,Σ(idₙ),
-    -- f([v₁,...,vₙ]) has type τ.
-    -- We abstract this as a postulate since the combine function
-    -- is constructed internally by M-LIFT-OP rules.
+    All (λ id → ∃[ τ' ] (lookup-store Σ id ≡ just τ')) deps →
+    (∀ vs → length vs ≡ length deps → Σ ⊢v f vs ∶ τ) →
     EntryTyped Σ (dependent deps f) τ
 
 -- Well-typed state: every Future entry in Φ is typed consistently with Σ
