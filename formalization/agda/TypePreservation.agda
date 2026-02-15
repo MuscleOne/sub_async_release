@@ -6,15 +6,15 @@
 --   The store typing Σ may grow (via ⊇) when new Futures are created.
 --
 -- Status:
---   PROVEN (6 cases):
+--   PROVEN (6 cases + value-to-expr bridge):
 --   - ⊇-fresh: store extension via WF+WT freshness (zero postulates)
+--   - value-to-expr-typed: ALL 4 value forms (zero postulates)
 --   - M-AWAIT: future-lit inversion + WT + value-to-expr-typed
 --   - M-AWAIT-IF: if-inversion + eval-if case analysis (zero postulates)
 --   - M-ASYNC: T-FutureLit + lookup-store-same
 --   - M-LIFT-OP-FF/FV/VF: T-FutureLit + lookup-store-same
 --
---   POSTULATED (3 cases + 1 bridge + main theorem):
---   - value-to-expr-typed (funV case only): closure typing bridge
+--   POSTULATED (3 cases + main theorem):
 --   - S-COMPLETE: pending value → completed
 --   - S-RESOLVE: combine function typing
 --   - S-SCHEDULE: inductive substep
@@ -108,16 +108,15 @@ future-lit-inversion (T-Sub deriv s<:) with future-lit-inversion deriv
 ... | τ' , lk , sub₁ = τ' , lk , <:-trans sub₁ s<:
 
 -- ============================================================================
--- VALUE-TO-EXPR TYPING BRIDGE: 3/4 cases PROVEN, funV POSTULATED
+-- VALUE-TO-EXPR TYPING BRIDGE: ALL 4 CASES PROVEN
 -- ============================================================================
 
 -- Bridges value typing (Σ ⊢v v ∶ τ) to expression typing (Σ ； Γ ⊢ value-to-expr v ∶ τ).
--- Three of four value forms are fully proven:
---   numV  → num  (T-Num)
---   boolV → bool (T-Bool)
---   futureV → future-lit (T-FutureLit)   ← enabled by adding future-lit to Expr
--- The closure case (funV → fun) requires richer closure typing
--- than the current simplified TV-Fun provides.
+-- All four value forms are fully proven:
+--   numV    → num         (T-Num)
+--   boolV   → bool        (T-Bool)
+--   futureV → future-lit  (T-FutureLit)
+--   funV    → fun         (T-Fun)  ← enabled by enriched TV-Fun
 
 -- Helper: extract value typing from completed entry
 extract-completed-typing : ∀ {Σ v τ} → EntryTyped Σ (completed v) τ → Σ ⊢v v ∶ τ
@@ -127,11 +126,7 @@ value-to-expr-typed : ∀ {Σ Γ v τ} → Σ ⊢v v ∶ τ → Σ ； Γ ⊢ va
 value-to-expr-typed TV-Num = T-Num
 value-to-expr-typed TV-Bool = T-Bool
 value-to-expr-typed (TV-Future lk) = T-FutureLit lk
-value-to-expr-typed TV-Fun = postulate-fun-bridge
-  where postulate postulate-fun-bridge : _
-  -- The closure case requires T-Fun with Σ ； (x,τ₁)∷Γ ⊢ e ∶ τ₂,
-  -- but TV-Fun carries no premises (simplified). A richer TV-Fun
-  -- with a body typing proof would make this case provable.
+value-to-expr-typed (TV-Fun body-ty) = T-Fun body-ty
 value-to-expr-typed (TV-Sub vt s<:) = T-Sub (value-to-expr-typed vt) s<:
 
 -- ============================================================================

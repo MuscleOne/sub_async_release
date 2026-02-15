@@ -99,117 +99,122 @@ lookup-store ((id' , τ) ∷ Σ) id with id ≟ id'
 ... | no  _ = lookup-store Σ id
 
 -- ============================================================================
--- VALUE TYPING (relative to store typing)
+-- VALUE TYPING and EXPRESSION TYPING (mutually defined)
+-- Value typing references expression typing in TV-Fun.
 -- ============================================================================
 
-data _⊢v_∶_ : StoreTy → Value → Ty → Set where
-  -- TV-NUM: numeric literals have type int
-  TV-Num : ∀ {Σ n} →
-    Σ ⊢v numV n ∶ int-ty
+mutual
+  data _⊢v_∶_ : StoreTy → Value → Ty → Set where
+    -- TV-NUM: numeric literals have type int
+    TV-Num : ∀ {Σ n} →
+      Σ ⊢v numV n ∶ int-ty
 
-  -- TV-BOOL: boolean literals have type bool
-  TV-Bool : ∀ {Σ b} →
-    Σ ⊢v boolV b ∶ bool-ty
+    -- TV-BOOL: boolean literals have type bool
+    TV-Bool : ∀ {Σ b} →
+      Σ ⊢v boolV b ∶ bool-ty
 
-  -- TV-FUTURE: Future handles have type Future<Σ(id)>
-  TV-Future : ∀ {Σ id τ} →
-    lookup-store Σ id ≡ just τ →
-    Σ ⊢v futureV id ∶ future-ty τ
+    -- TV-FUTURE: Future handles have type Future<Σ(id)>
+    TV-Future : ∀ {Σ id τ} →
+      lookup-store Σ id ≡ just τ →
+      Σ ⊢v futureV id ∶ future-ty τ
 
-  -- TV-FUN: closures have function type
-  -- (simplified: we don't track the closure's captured environment typing here)
-  TV-Fun : ∀ {Σ x e ρ τ₁ τ₂} →
-    Σ ⊢v funV x e ρ ∶ fun-ty τ₁ τ₂
+    -- TV-FUN: closures have function type
+    -- Body typing is context-polymorphic: a closure's body is self-contained
+    -- (free variables are captured in ρ, not resolved from outer Γ).
+    -- This lets value-to-expr bridge work without a separate weakening lemma.
+    TV-Fun : ∀ {Σ x e ρ τ₁ τ₂} →
+      (∀ {Γ} → Σ ； ((x , τ₁) ∷ Γ) ⊢ e ∶ τ₂) →
+      Σ ⊢v funV x e ρ ∶ fun-ty τ₁ τ₂
 
-  -- TV-SUB: subsumption for values
-  TV-Sub : ∀ {Σ v τ₁ τ₂} →
-    Σ ⊢v v ∶ τ₁ →
-    τ₁ <: τ₂ →
-    Σ ⊢v v ∶ τ₂
+    -- TV-SUB: subsumption for values
+    TV-Sub : ∀ {Σ v τ₁ τ₂} →
+      Σ ⊢v v ∶ τ₁ →
+      τ₁ <: τ₂ →
+      Σ ⊢v v ∶ τ₂
 
--- ============================================================================
--- EXPRESSION TYPING (§3.4 typing rules, relative to store typing and context)
--- ============================================================================
+  -- ============================================================================
+  -- (expression typing — second part of the mutual block)
+  -- ============================================================================
 
-data _；_⊢_∶_ : StoreTy → TyCtx → Expr → Ty → Set where
+  data _；_⊢_∶_ : StoreTy → TyCtx → Expr → Ty → Set where
 
-  -- T-VAR: variable lookup
-  T-Var : ∀ {Σ Γ x τ} →
-    lookup-ctx Γ x ≡ just τ →
-    Σ ； Γ ⊢ var x ∶ τ
+    -- T-VAR: variable lookup
+    T-Var : ∀ {Σ Γ x τ} →
+      lookup-ctx Γ x ≡ just τ →
+      Σ ； Γ ⊢ var x ∶ τ
 
-  -- T-NUM: integer literals
-  T-Num : ∀ {Σ Γ n} →
-    Σ ； Γ ⊢ num n ∶ int-ty
+    -- T-NUM: integer literals
+    T-Num : ∀ {Σ Γ n} →
+      Σ ； Γ ⊢ num n ∶ int-ty
 
-  -- T-BOOL: boolean literals
-  T-Bool : ∀ {Σ Γ b} →
-    Σ ； Γ ⊢ bool b ∶ bool-ty
+    -- T-BOOL: boolean literals
+    T-Bool : ∀ {Σ Γ b} →
+      Σ ； Γ ⊢ bool b ∶ bool-ty
 
-  -- T-FUTURE-LIT: Future literal has Future type
-  -- Corresponds to TV-Future for expressions
-  T-FutureLit : ∀ {Σ Γ id τ} →
-    lookup-store Σ id ≡ just τ →
-    Σ ； Γ ⊢ future-lit id ∶ future-ty τ
+    -- T-FUTURE-LIT: Future literal has Future type
+    -- Corresponds to TV-Future for expressions
+    T-FutureLit : ∀ {Σ Γ id τ} →
+      lookup-store Σ id ≡ just τ →
+      Σ ； Γ ⊢ future-lit id ∶ future-ty τ
 
-  -- T-ASYNC: async wraps in Future
-  T-Async : ∀ {Σ Γ e τ} →
-    Σ ； Γ ⊢ e ∶ τ →
-    Σ ； Γ ⊢ async e ∶ future-ty τ
+    -- T-ASYNC: async wraps in Future
+    T-Async : ∀ {Σ Γ e τ} →
+      Σ ； Γ ⊢ e ∶ τ →
+      Σ ； Γ ⊢ async e ∶ future-ty τ
 
-  -- T-OP: standard binary operation on base types
-  T-Op : ∀ {Σ Γ op e₁ e₂} →
-    Σ ； Γ ⊢ e₁ ∶ op-domain₁ op →
-    Σ ； Γ ⊢ e₂ ∶ op-domain₂ op →
-    Σ ； Γ ⊢ binop op e₁ e₂ ∶ op-range op
+    -- T-OP: standard binary operation on base types
+    T-Op : ∀ {Σ Γ op e₁ e₂} →
+      Σ ； Γ ⊢ e₁ ∶ op-domain₁ op →
+      Σ ； Γ ⊢ e₂ ∶ op-domain₂ op →
+      Σ ； Γ ⊢ binop op e₁ e₂ ∶ op-range op
 
-  -- T-LIFT-OP-FF: both operands are Futures
-  T-Lift-Op-FF : ∀ {Σ Γ op e₁ e₂} →
-    Σ ； Γ ⊢ e₁ ∶ future-ty (op-domain₁ op) →
-    Σ ； Γ ⊢ e₂ ∶ future-ty (op-domain₂ op) →
-    Σ ； Γ ⊢ binop op e₁ e₂ ∶ future-ty (op-range op)
+    -- T-LIFT-OP-FF: both operands are Futures
+    T-Lift-Op-FF : ∀ {Σ Γ op e₁ e₂} →
+      Σ ； Γ ⊢ e₁ ∶ future-ty (op-domain₁ op) →
+      Σ ； Γ ⊢ e₂ ∶ future-ty (op-domain₂ op) →
+      Σ ； Γ ⊢ binop op e₁ e₂ ∶ future-ty (op-range op)
 
-  -- T-LIFT-OP-FV: left operand is Future
-  T-Lift-Op-FV : ∀ {Σ Γ op e₁ e₂} →
-    Σ ； Γ ⊢ e₁ ∶ future-ty (op-domain₁ op) →
-    Σ ； Γ ⊢ e₂ ∶ op-domain₂ op →
-    Σ ； Γ ⊢ binop op e₁ e₂ ∶ future-ty (op-range op)
+    -- T-LIFT-OP-FV: left operand is Future
+    T-Lift-Op-FV : ∀ {Σ Γ op e₁ e₂} →
+      Σ ； Γ ⊢ e₁ ∶ future-ty (op-domain₁ op) →
+      Σ ； Γ ⊢ e₂ ∶ op-domain₂ op →
+      Σ ； Γ ⊢ binop op e₁ e₂ ∶ future-ty (op-range op)
 
-  -- T-LIFT-OP-VF: right operand is Future
-  T-Lift-Op-VF : ∀ {Σ Γ op e₁ e₂} →
-    Σ ； Γ ⊢ e₁ ∶ op-domain₁ op →
-    Σ ； Γ ⊢ e₂ ∶ future-ty (op-domain₂ op) →
-    Σ ； Γ ⊢ binop op e₁ e₂ ∶ future-ty (op-range op)
+    -- T-LIFT-OP-VF: right operand is Future
+    T-Lift-Op-VF : ∀ {Σ Γ op e₁ e₂} →
+      Σ ； Γ ⊢ e₁ ∶ op-domain₁ op →
+      Σ ； Γ ⊢ e₂ ∶ future-ty (op-domain₂ op) →
+      Σ ； Γ ⊢ binop op e₁ e₂ ∶ future-ty (op-range op)
 
-  -- T-IF: conditional (standard)
-  T-If : ∀ {Σ Γ e₁ e₂ e₃ τ} →
-    Σ ； Γ ⊢ e₁ ∶ bool-ty →
-    Σ ； Γ ⊢ e₂ ∶ τ →
-    Σ ； Γ ⊢ e₃ ∶ τ →
-    Σ ； Γ ⊢ if_then_else e₁ e₂ e₃ ∶ τ
+    -- T-IF: conditional (standard)
+    T-If : ∀ {Σ Γ e₁ e₂ e₃ τ} →
+      Σ ； Γ ⊢ e₁ ∶ bool-ty →
+      Σ ； Γ ⊢ e₂ ∶ τ →
+      Σ ； Γ ⊢ e₃ ∶ τ →
+      Σ ； Γ ⊢ if_then_else e₁ e₂ e₃ ∶ τ
 
-  -- T-FUN: lambda abstraction
-  T-Fun : ∀ {Σ Γ x e τ₁ τ₂} →
-    Σ ； ((x , τ₁) ∷ Γ) ⊢ e ∶ τ₂ →
-    Σ ； Γ ⊢ fun x e ∶ fun-ty τ₁ τ₂
+    -- T-FUN: lambda abstraction
+    T-Fun : ∀ {Σ Γ x e τ₁ τ₂} →
+      Σ ； ((x , τ₁) ∷ Γ) ⊢ e ∶ τ₂ →
+      Σ ； Γ ⊢ fun x e ∶ fun-ty τ₁ τ₂
 
-  -- T-APP: function application
-  T-App : ∀ {Σ Γ e₁ e₂ τ₁ τ₂} →
-    Σ ； Γ ⊢ e₁ ∶ fun-ty τ₁ τ₂ →
-    Σ ； Γ ⊢ e₂ ∶ τ₁ →
-    Σ ； Γ ⊢ app e₁ e₂ ∶ τ₂
+    -- T-APP: function application
+    T-App : ∀ {Σ Γ e₁ e₂ τ₁ τ₂} →
+      Σ ； Γ ⊢ e₁ ∶ fun-ty τ₁ τ₂ →
+      Σ ； Γ ⊢ e₂ ∶ τ₁ →
+      Σ ； Γ ⊢ app e₁ e₂ ∶ τ₂
 
-  -- T-LET: let binding
-  T-Let : ∀ {Σ Γ x e₁ e₂ τ₁ τ₂} →
-    Σ ； Γ ⊢ e₁ ∶ τ₁ →
-    Σ ； ((x , τ₁) ∷ Γ) ⊢ e₂ ∶ τ₂ →
-    Σ ； Γ ⊢ let⟨ x ⟩= e₁ ⟨in⟩ e₂ ∶ τ₂
+    -- T-LET: let binding
+    T-Let : ∀ {Σ Γ x e₁ e₂ τ₁ τ₂} →
+      Σ ； Γ ⊢ e₁ ∶ τ₁ →
+      Σ ； ((x , τ₁) ∷ Γ) ⊢ e₂ ∶ τ₂ →
+      Σ ； Γ ⊢ let⟨ x ⟩= e₁ ⟨in⟩ e₂ ∶ τ₂
 
-  -- T-SUB: subsumption
-  T-Sub : ∀ {Σ Γ e τ₁ τ₂} →
-    Σ ； Γ ⊢ e ∶ τ₁ →
-    τ₁ <: τ₂ →
-    Σ ； Γ ⊢ e ∶ τ₂
+    -- T-SUB: subsumption
+    T-Sub : ∀ {Σ Γ e τ₁ τ₂} →
+      Σ ； Γ ⊢ e ∶ τ₁ →
+      τ₁ <: τ₂ →
+      Σ ； Γ ⊢ e ∶ τ₂
 
 -- ============================================================================
 -- WELL-TYPED STATE (WT)
