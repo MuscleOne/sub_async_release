@@ -28,9 +28,9 @@ open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Bool using (Bool; true; false)
 open import Data.Maybe using (just; nothing)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
-open import Data.Unit
-open import Data.Empty
-open import Function
+open import Data.Unit using (⊤; tt)
+open import Data.Empty using (⊥; ⊥-elim)
+open import Function using (case_of_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; _≢_; inspect; [_]; subst)
 open import Relation.Nullary using (¬_; Dec; yes; no)
 open import Data.Nat using (ℕ; _≟_; _<_; suc)
@@ -47,13 +47,13 @@ module TypePreservation where
 -- AUXILIARY LEMMAS
 -- ============================================================================
 
-lookup-store-same : ∀ (Σ : StoreTy) (id : Id) (τ : Ty) →
+lookup-store-same : ∀ (Σ : Store-ty) (id : Id) (τ : Ty) →
   lookup-store ((id , τ) ∷ Σ) id ≡ just τ
 lookup-store-same Σ id τ with id ≟ id
 ... | yes _ = refl
 ... | no neq = ⊥-elim (neq refl)
 
-lookup-store-neq : ∀ (Σ : StoreTy) (id id' : Id) (τ : Ty) →
+lookup-store-neq : ∀ (Σ : Store-ty) (id id' : Id) (τ : Ty) →
   id ≢ id' →
   lookup-store ((id' , τ) ∷ Σ) id ≡ lookup-store Σ id
 lookup-store-neq Σ id id' τ neq with id ≟ id'
@@ -235,7 +235,7 @@ fun-inversion (T-Sub d s<:) with fun-inversion d
 -- CORRECTNESS ARGUMENT:
 -- In actual execution, `funV x e ρ` always satisfies: ρ binds all free
 -- variables in e (except x). This is guaranteed by the evaluation rules.
--- However, our formalization has no `EnvTyped ρ Γ` relation to express this.
+-- However, our formalization has no `Env-typed ρ Γ` relation to express this.
 --
 -- COMPARISON WITH expr-weaken:
 -- The original attempt used `expr-weaken : Σ；Γ ⊢ e ∶ τ → Σ；Γ' ⊢ e ∶ τ`,
@@ -246,9 +246,9 @@ fun-inversion (T-Sub d s<:) with fun-inversion d
 --
 -- TO ELIMINATE THIS POSTULATE:
 -- Would require either:
--- 1. Add EnvTyped premise to TV-Fun: `EnvTyped Σ ρ Γ → ...`
+-- 1. Add Env-typed premise to TV-Fun: `Env-typed Σ ρ Γ → ...`
 -- 2. Introduce a well-typed closure invariant throughout evaluation
--- 3. Change EntryTyped to store value typing instead of expression typing
+-- 3. Change Entry-typed to store value typing instead of expression typing
 -- All options require substantial refactoring beyond the current scope.
 postulate
   funV-typing : ∀ {Σ Γ x e ρ τ} →
@@ -275,7 +275,7 @@ expr-to-value-typed {v = funV x e ρ} typing = funV-typing typing
 --   futureV → future-lit  (T-FutureLit)
 --   funV    → fun         (T-Fun)  ← enabled by enriched TV-Fun
 
-extract-completed-typing : ∀ {Σ v τ} → EntryTyped Σ (completed v) τ → Σ ⊢v v ∶ τ
+extract-completed-typing : ∀ {Σ v τ} → Entry-typed Σ (completed v) τ → Σ ⊢v v ∶ τ
 extract-completed-typing (ET-Completed vt) = vt
 
 value-to-expr-typed : ∀ {Σ Γ v τ} → Σ ⊢v v ∶ τ → Σ ； Γ ⊢ value-to-expr v ∶ τ
@@ -447,7 +447,7 @@ S-COMPLETE-type-preserves {Σ} {_} {Φ} {_} {id} {v}
     entry-typed' : ∀ id' σ τ →
       lookup-future ((id , completed v) ∷ Φ) id' ≡ just σ →
       lookup-store Σ id' ≡ just τ →
-      EntryTyped Σ σ τ
+      Entry-typed Σ σ τ
     entry-typed' id' σ τ lk-f lk-s with id' ≟ id
     -- Case id' = id: the updated entry
     entry-typed' .id .(completed v) τ refl lk-s | yes refl =
@@ -480,7 +480,7 @@ just-injective refl = refl
 -- S-RESOLVE: PROVEN
 -- ============================================================================
 
-collect-values-length : ∀ {Φ : FutureTable} {deps : List Id} {vs : List Value} →
+collect-values-length : ∀ {Φ : Future-table} {deps : List Id} {vs : List Value} →
   collect-values Φ deps ≡ just vs → length vs ≡ length deps
 collect-values-length {_} {[]} refl = refl
 collect-values-length {Φ} {id ∷ ids} _ with lookup-future Φ id
@@ -510,11 +510,11 @@ S-RESOLVE-type-preserves {Σ} {_} {Φ} {_} {id} {deps} {combine} {vs}
     lk-store = proj₂ (Φ→Σ id (dependent deps combine) lk-dep)
     
     -- Get ET-Dependent, which gives us the typing premise for combine
-    et-dep : EntryTyped Σ (dependent deps combine) τ
+    et-dep : Entry-typed Σ (dependent deps combine) τ
     et-dep = entry-typed id (dependent deps combine) τ lk-dep lk-store
     
     -- Extract the typing proof from ET-Dependent
-    extract-combine-typed : EntryTyped Σ (dependent deps combine) τ →
+    extract-combine-typed : Entry-typed Σ (dependent deps combine) τ →
       (∀ vs₁ → length vs₁ ≡ length deps → Σ ⊢v combine vs₁ ∶ τ)
     extract-combine-typed (ET-Dependent _ f-typed) = f-typed
     
@@ -527,12 +527,12 @@ S-RESOLVE-type-preserves {Σ} {_} {Φ} {_} {id} {deps} {combine} {vs}
     entry-typed' : ∀ id' σ τ' →
       lookup-future ((id , completed (combine vs)) ∷ Φ) id' ≡ just σ →
       lookup-store Σ id' ≡ just τ' →
-      EntryTyped Σ σ τ'
+      Entry-typed Σ σ τ'
     entry-typed' id' σ τ' lk-f lk-s with id' ≟ id
     -- Case id' = id: the resolved entry
     entry-typed' .id .(completed (combine vs)) τ' refl lk-s | yes refl =
       let τ'≡τ = just-injective (trans (sym lk-s) lk-store)
-      in subst (λ z → EntryTyped Σ (completed (combine vs)) z) (sym τ'≡τ) (ET-Completed combine-vs-typed)
+      in subst (λ z → Entry-typed Σ (completed (combine vs)) z) (sym τ'≡τ) (ET-Completed combine-vs-typed)
     -- Case id' ≠ id: pass through to old Φ
     entry-typed' id' σ τ' lk-f lk-s | no _ = entry-typed id' σ τ' lk-f lk-s
     

@@ -18,7 +18,7 @@ open import Data.Bool using (Bool; true; false)
 open import Data.List using (List; []; _∷_; _++_)
 open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Maybe using (just; nothing)
-open import Data.String
+open import Data.String using (String)
 open import Data.Product using (_,_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
@@ -38,14 +38,14 @@ example1-step0 : Configuration
 example1-step0 = ⟪ async (binop add (num 2) (num 3)) , ⟨ [] , [] , [] ⟩ ⟫
 
 -- After first M-ASYNC: Future #0 created  
-ft1 : FutureTable
+ft1 : Future-table
 ft1 = (0 , pending (binop add (num 2) (num 3)) []) ∷ []
 
 example1-step1 : Configuration
 example1-step1 = ⟪ value-to-expr (futureV 0) , ⟨ [] , ft1 , 0 ∷ [] ⟩ ⟫
 
 -- After all 3 async are created
-ft3 : FutureTable
+ft3 : Future-table
 ft3 = (0 , pending (binop add (num 2) (num 3)) []) ∷
       (1 , pending (binop mul (num 10) (num 10)) []) ∷
       (2 , pending (binop mul (num 7) (num 8)) []) ∷
@@ -58,7 +58,7 @@ example1-after-3-async : Configuration
 example1-after-3-async = ⟪ value-to-expr (futureV 0) , ⟨ env3 , ft3 , 0 ∷ 1 ∷ 2 ∷ [] ⟩ ⟫
 
 -- After M-LIFT-OP creates Future #3 for x+y
-ft4 : FutureTable
+ft4 : Future-table
 ft4 = (0 , pending (binop add (num 2) (num 3)) []) ∷
       (1 , pending (binop mul (num 10) (num 10)) []) ∷
       (2 , pending (binop mul (num 7) (num 8)) []) ∷
@@ -69,7 +69,7 @@ example1-after-lift-xy : Configuration
 example1-after-lift-xy = ⟪ value-to-expr (futureV 3) , ⟨ env3 , ft4 , 0 ∷ 1 ∷ 2 ∷ [] ⟩ ⟫
 
 -- After M-LIFT-OP creates Future #4 for (#3+z)
-ft5 : FutureTable
+ft5 : Future-table
 ft5 = (0 , pending (binop add (num 2) (num 3)) []) ∷
       (1 , pending (binop mul (num 10) (num 10)) []) ∷
       (2 , pending (binop mul (num 7) (num 8)) []) ∷
@@ -81,7 +81,7 @@ example1-after-lift-final : Configuration
 example1-after-lift-final = ⟪ value-to-expr (futureV 4) , ⟨ env3 , ft5 , 0 ∷ 1 ∷ 2 ∷ [] ⟩ ⟫
 
 -- After S-COMPLETE for Future #0: 2+3 = 5
-ft6 : FutureTable
+ft6 : Future-table
 ft6 = (0 , completed (numV 5)) ∷
       (1 , pending (binop mul (num 10) (num 10)) []) ∷
       (2 , pending (binop mul (num 7) (num 8)) []) ∷
@@ -93,7 +93,7 @@ example1-after-complete-0 : Configuration
 example1-after-complete-0 = ⟪ value-to-expr (futureV 4) , ⟨ env3 , ft6 , 1 ∷ 2 ∷ [] ⟩ ⟫
 
 -- After S-COMPLETE for Future #1: 10*10 = 100
-ft7 : FutureTable
+ft7 : Future-table
 ft7 = (0 , completed (numV 5)) ∷
       (1 , completed (numV 100)) ∷
       (2 , pending (binop mul (num 7) (num 8)) []) ∷
@@ -105,7 +105,7 @@ example1-after-complete-1 : Configuration
 example1-after-complete-1 = ⟪ value-to-expr (futureV 4) , ⟨ env3 , ft7 , 2 ∷ [] ⟩ ⟫
 
 -- Final state: all resolved, result = 161
-ft-final : FutureTable
+ft-final : Future-table
 ft-final = (0 , completed (numV 5)) ∷
            (1 , completed (numV 100)) ∷
            (2 , completed (numV 56)) ∷
@@ -124,7 +124,7 @@ example2-step0 : Configuration
 example2-step0 = ⟪ async (num 1000) , ⟨ [] , [] , [] ⟩ ⟫
 
 -- After M-ASYNC: Future #0 created
-ft2-1 : FutureTable
+ft2-1 : Future-table
 ft2-1 = (0 , pending (num 1000) []) ∷ []
 
 example2-step1 : Configuration
@@ -134,7 +134,7 @@ example2-step1 = ⟪ value-to-expr (futureV 0) , ⟨ [] , ft2-1 , 0 ∷ [] ⟩ �
 env2-1 : Env
 env2-1 = (varX , futureV 0) ∷ []
 
-ft2-2 : FutureTable
+ft2-2 : Future-table
 ft2-2 = (0 , pending (num 1000) []) ∷
         (1 , dependent (0 ∷ []) (combine-unary-left add (numV 1))) ∷
         []
@@ -146,7 +146,7 @@ example2-after-lift-1 = ⟪ value-to-expr (futureV 1) , ⟨ env2-1 , ft2-2 , 0 �
 env2-2 : Env
 env2-2 = (varX , futureV 0) ∷ (varLeft , futureV 1) ∷ []
 
-ft2-3 : FutureTable
+ft2-3 : Future-table
 ft2-3 = (0 , pending (num 1000) []) ∷
         (1 , dependent (0 ∷ []) (combine-unary-left add (numV 1))) ∷
         (2 , dependent (0 ∷ []) (combine-unary-left add (numV 2))) ∷
@@ -159,7 +159,7 @@ example2-after-lift-2 = ⟪ value-to-expr (futureV 2) , ⟨ env2-2 , ft2-3 , 0 �
 env2-3 : Env
 env2-3 = (varX , futureV 0) ∷ (varLeft , futureV 1) ∷ (varRight , futureV 2) ∷ []
 
-ft2-4 : FutureTable
+ft2-4 : Future-table
 ft2-4 = (0 , pending (num 1000) []) ∷
         (1 , dependent (0 ∷ []) (combine-unary-left add (numV 1))) ∷
         (2 , dependent (0 ∷ []) (combine-unary-left add (numV 2))) ∷
@@ -170,7 +170,7 @@ example2-after-lift-3 : Configuration
 example2-after-lift-3 = ⟪ value-to-expr (futureV 3) , ⟨ env2-3 , ft2-4 , 0 ∷ [] ⟩ ⟫
 
 -- After S-COMPLETE for Future #0: 1000
-ft2-5 : FutureTable
+ft2-5 : Future-table
 ft2-5 = (0 , completed (numV 1000)) ∷
         (1 , dependent (0 ∷ []) (combine-unary-left add (numV 1))) ∷
         (2 , dependent (0 ∷ []) (combine-unary-left add (numV 2))) ∷
@@ -181,7 +181,7 @@ example2-after-complete-0 : Configuration
 example2-after-complete-0 = ⟪ value-to-expr (futureV 3) , ⟨ env2-3 , ft2-5 , [] ⟩ ⟫
 
 -- Final state after all S-RESOLVE: result = 2003
-ft2-final : FutureTable
+ft2-final : Future-table
 ft2-final = (0 , completed (numV 1000)) ∷
             (1 , completed (numV 1001)) ∷
             (2 , completed (numV 1002)) ∷
@@ -212,7 +212,7 @@ lift-ff-before = ⟪ binop add (value-to-expr (futureV 0)) (value-to-expr (futur
 
 -- After M-LIFT-OP-FF: fresh-id ft3 = 3
 -- NOTE: update-future adds to FRONT of list!
-ft4' : FutureTable
+ft4' : Future-table
 ft4' = (3 , dependent (0 ∷ 1 ∷ []) (combine-binary add)) ∷
        (0 , pending (binop add (num 2) (num 3)) []) ∷
        (1 , pending (binop mul (num 10) (num 10)) []) ∷
@@ -230,7 +230,7 @@ lift-ff-proof = M-LIFT-OP-FF (pending _ _ , refl) (pending _ _ , refl) (λ ())
 -- S-COMPLETE PROOF: Pending(value) → Completed
 -- =============================================================================
 
-ft-pending-value : FutureTable
+ft-pending-value : Future-table
 ft-pending-value = (0 , pending (num 5) []) ∷ []  -- num 5 = value-to-expr (numV 5)
 
 complete-before : Configuration
@@ -240,7 +240,7 @@ complete-before = ⟪ num 99 , ⟨ [] , ft-pending-value , 0 ∷ [] ⟩ ⟫  -- 
 --   1. remove-from-queue removes 0 from Q → []
 --   2. update-future ADDS (0, completed) to FRONT of Φ
 -- So result has TWO entries for id 0 (old pending + new completed)
-ft-completed : FutureTable  
+ft-completed : Future-table  
 ft-completed = (0 , completed (numV 5)) ∷ (0 , pending (num 5) []) ∷ []
 
 complete-after : Configuration
@@ -260,7 +260,7 @@ complete-proof = S-COMPLETE 0∈Q lookup-0-pending
 -- M-AWAIT PROOF: Extract value from completed Future
 -- =============================================================================
 
-ft-with-completed : FutureTable
+ft-with-completed : Future-table
 ft-with-completed = (0 , completed (numV 42)) ∷ []
 
 await-before : Configuration
@@ -280,7 +280,7 @@ await-proof = M-AWAIT lookup-0-completed
 -- S-RESOLVE PROOF: Dependent → Completed when all deps are ready
 -- =============================================================================
 
-ft-for-resolve : FutureTable
+ft-for-resolve : Future-table
 ft-for-resolve = (0 , completed (numV 5)) ∷
                  (1 , completed (numV 10)) ∷
                  (2 , dependent (0 ∷ 1 ∷ []) (combine-binary add)) ∷
@@ -290,7 +290,7 @@ resolve-before : Configuration
 resolve-before = ⟪ num 99 , ⟨ [] , ft-for-resolve , [] ⟩ ⟫
 
 -- After S-RESOLVE: Future #2 becomes completed with combined value
-ft-after-resolve : FutureTable
+ft-after-resolve : Future-table
 ft-after-resolve = (2 , completed (numV 15)) ∷  -- update adds to front!
                    (0 , completed (numV 5)) ∷
                    (1 , completed (numV 10)) ∷
@@ -319,7 +319,7 @@ resolve-proof = S-RESOLVE lookup-2-dependent collect-01 all-completed-01
 -- =============================================================================
 -- This is for expressions like: x + 1 (where x is Future #0)
 
-ft-for-fv : FutureTable
+ft-for-fv : Future-table
 ft-for-fv = (0 , pending (num 1000) []) ∷ []
 
 lift-fv-before : Configuration
@@ -327,7 +327,7 @@ lift-fv-before = ⟪ binop add (value-to-expr (futureV 0)) (value-to-expr (numV 
                  , ⟨ [] , ft-for-fv , 0 ∷ [] ⟩ ⟫
 
 -- After M-LIFT-OP-FV: fresh-id ft-for-fv = 1
-ft-after-fv : FutureTable
+ft-after-fv : Future-table
 ft-after-fv = (1 , dependent (0 ∷ []) (combine-unary-left add (numV 5))) ∷
               (0 , pending (num 1000) []) ∷
               []
@@ -349,7 +349,7 @@ lift-vf-before = ⟪ binop add (value-to-expr (numV 100)) (value-to-expr (future
                  , ⟨ [] , ft-for-fv , 0 ∷ [] ⟩ ⟫
 
 -- After M-LIFT-OP-VF: fresh-id ft-for-fv = 1
-ft-after-vf : FutureTable
+ft-after-vf : Future-table
 ft-after-vf = (1 , dependent (0 ∷ []) (combine-unary-right add (numV 100))) ∷
               (0 , pending (num 1000) []) ∷
               []
@@ -365,7 +365,7 @@ lift-vf-proof = M-LIFT-OP-VF (pending _ _ , refl)
 -- M-AWAIT-IF PROOF: Await in if condition
 -- =============================================================================
 
-ft-for-await-if : FutureTable
+ft-for-await-if : Future-table
 ft-for-await-if = (0 , completed (boolV true)) ∷ []
 
 await-if-before : Configuration
@@ -413,7 +413,7 @@ await-if-proof = M-AWAIT-IF lookup-0-bool
 
 postulate testFun : Var  -- dummy variable for function
 
-ft-for-await-app1 : FutureTable
+ft-for-await-app1 : Future-table
 ft-for-await-app1 = (0 , completed (funV testFun (num 42) [])) ∷ []
 
 await-app1-before : Configuration
@@ -436,7 +436,7 @@ await-app1-proof = M-AWAIT-APP1 lookup-0-fun
 -- M-AWAIT-APP2 PROOF: Await argument position in application  
 -- =============================================================================
 
-ft-for-await-app2 : FutureTable
+ft-for-await-app2 : Future-table
 ft-for-await-app2 = (0 , completed (numV 99)) ∷ []
 
 await-app2-before : Configuration
@@ -465,7 +465,7 @@ await-app2-proof = M-AWAIT-APP2 lookup-0-arg
 -- Scenario: Future #0 has pending expression (async (num 10))
 -- The inner async can step via M-ASYNC, creating a new Future
 
-ft-for-schedule : FutureTable  
+ft-for-schedule : Future-table  
 ft-for-schedule = (0 , pending (async (num 10)) []) ∷ []
 
 schedule-before : Configuration
@@ -478,7 +478,7 @@ schedule-before = ⟪ num 99 , ⟨ [] , ft-for-schedule , 0 ∷ [] ⟩ ⟫
 --   e'' = futureV 1
 --   s'' = ⟨ [], (1, pending (num 10) []) ∷ Φ , [1] ⟩
 
-inner-ft-after : FutureTable
+inner-ft-after : Future-table
 inner-ft-after = (1 , pending (num 10) []) ∷ ft-for-schedule
 
 inner-s'' : State
@@ -497,7 +497,7 @@ inner-step = M-ASYNC
 -- update-future prepends (0, pending (futureV 1) []) to get-futures s''
 
 -- Result of update-future ... id (pending e'' env'')
-ft-after-schedule : FutureTable
+ft-after-schedule : Future-table
 ft-after-schedule = (0 , pending (value-to-expr (futureV 1)) []) ∷ inner-ft-after
 
 schedule-after : Configuration

@@ -7,7 +7,7 @@ open import Data.List using (List; []; _∷_; length)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
-open import Data.Empty
+open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 
@@ -75,19 +75,19 @@ op-range eq  = bool-ty
 -- TYPE CONTEXT AND STORE TYPING
 -- ============================================================================
 
-TyCtx : Set
-TyCtx = List (Var × Ty)
+Ty-ctx : Set
+Ty-ctx = List (Var × Ty)
 
-StoreTy : Set
-StoreTy = List (Id × Ty)
+Store-ty : Set
+Store-ty = List (Id × Ty)
 
-lookup-ctx : TyCtx → Var → Maybe Ty
+lookup-ctx : Ty-ctx → Var → Maybe Ty
 lookup-ctx [] _ = nothing
 lookup-ctx ((y , τ) ∷ Γ) x with x ≟ᵥ y
 ... | yes _ = just τ
 ... | no  _ = lookup-ctx Γ x
 
-lookup-store : StoreTy → Id → Maybe Ty
+lookup-store : Store-ty → Id → Maybe Ty
 lookup-store [] _ = nothing
 lookup-store ((id' , τ) ∷ Σ) id with id ≟ id'
 ... | yes _ = just τ
@@ -99,7 +99,7 @@ lookup-store ((id' , τ) ∷ Σ) id with id ≟ id'
 -- ============================================================================
 
 mutual
-  data _⊢v_∶_ : StoreTy → Value → Ty → Set where
+  data _⊢v_∶_ : Store-ty → Value → Ty → Set where
     -- TV-NUM: numeric literals have type int
     TV-Num : ∀ {Σ n} →
       Σ ⊢v numV n ∶ int-ty
@@ -131,7 +131,7 @@ mutual
   -- (expression typing — second part of the mutual block)
   -- ============================================================================
 
-  data _；_⊢_∶_ : StoreTy → TyCtx → Expr → Ty → Set where
+  data _；_⊢_∶_ : Store-ty → Ty-ctx → Expr → Ty → Set where
 
     -- T-VAR: variable lookup
     T-Var : ∀ {Σ Γ x τ} →
@@ -215,22 +215,22 @@ mutual
 -- WELL-TYPED STATE (WT)
 -- ============================================================================
 
-data EnvTyped : StoreTy → Env → TyCtx → Set where
-  env-nil : ∀ {Σ} → EnvTyped Σ [] []
+data Env-typed : Store-ty → Env → Ty-ctx → Set where
+  env-nil : ∀ {Σ} → Env-typed Σ [] []
   env-cons : ∀ {Σ x v τ ρ Γ} →
     Σ ⊢v v ∶ τ →
-    EnvTyped Σ ρ Γ →
-    EnvTyped Σ ((x , v) ∷ ρ) ((x , τ) ∷ Γ)
+    Env-typed Σ ρ Γ →
+    Env-typed Σ ((x , v) ∷ ρ) ((x , τ) ∷ Γ)
 
-data EntryTyped (Σ : StoreTy) : Status → Ty → Set where
+data Entry-typed (Σ : Store-ty) : Status → Ty → Set where
   ET-Pending : ∀ {e ρ τ Γ} →
-    EnvTyped Σ ρ Γ →
+    Env-typed Σ ρ Γ →
     Σ ； Γ ⊢ e ∶ τ →
-    EntryTyped Σ (pending e ρ) τ
+    Entry-typed Σ (pending e ρ) τ
 
   ET-Completed : ∀ {v τ} →
     Σ ⊢v v ∶ τ →
-    EntryTyped Σ (completed v) τ
+    Entry-typed Σ (completed v) τ
 
   -- Dependent(ids, f): combine function maps dep types to result type
   -- The typing of f is ensured by construction from M-LIFT-OP rules.
@@ -242,16 +242,16 @@ data EntryTyped (Σ : StoreTy) : Status → Ty → Set where
   ET-Dependent : ∀ {deps f τ} →
     All (λ id → ∃[ τ' ] (lookup-store Σ id ≡ just τ')) deps →
     (∀ vs → length vs ≡ length deps → Σ ⊢v f vs ∶ τ) →
-    EntryTyped Σ (dependent deps f) τ
+    Entry-typed Σ (dependent deps f) τ
 
-data WT : StoreTy → State → Set where
+data WT : Store-ty → State → Set where
   wt-state : ∀ {Σ ρ Φ Q Γ} →
-    EnvTyped Σ ρ Γ →
+    Env-typed Σ ρ Γ →
     -- Every Future entry is well-typed
     (∀ id σ τ →
       lookup-future Φ id ≡ just σ →
       lookup-store Σ id ≡ just τ →
-      EntryTyped Σ σ τ) →
+      Entry-typed Σ σ τ) →
     -- Store typing covers all Future ids
     (∀ id σ →
       lookup-future Φ id ≡ just σ →
@@ -268,7 +268,7 @@ data WT : StoreTy → State → Set where
 -- ============================================================================
 
 -- Σ' extends Σ (all old bindings preserved)
-_⊇_ : StoreTy → StoreTy → Set
+_⊇_ : Store-ty → Store-ty → Set
 Σ' ⊇ Σ = ∀ id τ → lookup-store Σ id ≡ just τ → lookup-store Σ' id ≡ just τ
 
 -- Prepend with fresh id extends: if id-new ∉ dom(Σ), then prepending preserves all old lookups

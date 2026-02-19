@@ -6,9 +6,8 @@ open import Data.List.Relation.Unary.All as All using (All)
 open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Maybe using (just; nothing)  
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
-open import Data.Unit
-open import Data.Empty
-open import Function
+open import Data.Unit using (⊤; tt)
+open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; _≢_; subst)
 open import Relation.Nullary using (¬_; Dec; yes; no)
 open import Data.Nat using (ℕ; _≟_; _<_; suc)
@@ -26,29 +25,29 @@ module WFPreservation where
 -- ============================================================================
 
 -- Proof: condition 5 of WF says all ids < fresh-id, so fresh-id ∉ dom(Φ) by <-irrefl
-fresh-id-not-in-domain : (Φ : FutureTable) →
+fresh-id-not-in-domain : (Φ : Future-table) →
   (∀ id σ → lookup-future Φ id ≡ just σ → id < fresh-id Φ) →
   ¬ (id-in-domain (fresh-id Φ) Φ)
 fresh-id-not-in-domain Φ all-below (σ , lookup-eq) = <-irrefl refl (all-below (fresh-id Φ) σ lookup-eq)
 
-lookup-update-same : (Φ : FutureTable) (id : Id) (σ : Status) → lookup-future ((id , σ) ∷ Φ) id ≡ just σ
+lookup-update-same : (Φ : Future-table) (id : Id) (σ : Status) → lookup-future ((id , σ) ∷ Φ) id ≡ just σ
 lookup-update-same Φ id σ with id ≟ id
 ... | yes refl = refl
 ... | no  id≢id = ⊥-elim (id≢id refl)
 
-queue-add-preserves : (Q : PendingQueue) (id id' : Id) → id' ∈ Q → id' ∈ (id ∷ Q)
+queue-add-preserves : (Q : Pending-set) (id id' : Id) → id' ∈ Q → id' ∈ (id ∷ Q)
 queue-add-preserves Q id id' mem = there mem
 
-queue-add-new : (Q : PendingQueue) (id : Id) → id ∈ (id ∷ Q)
+queue-add-new : (Q : Pending-set) (id : Id) → id ∈ (id ∷ Q)
 queue-add-new Q id = here refl
 
-lookup-prepend-neq : ∀ (Φ : FutureTable) (id id' : Id) (σ : Status) →
+lookup-prepend-neq : ∀ (Φ : Future-table) (id id' : Id) (σ : Status) →
   id ≢ id' → lookup-future ((id' , σ) ∷ Φ) id ≡ lookup-future Φ id
 lookup-prepend-neq Φ id id' σ neq with id ≟ id'
 ... | yes id≡id' = ⊥-elim (neq id≡id')
 ... | no  _      = refl
 
-id-in-domain-prepend : ∀ (Φ : FutureTable) (id id' : Id) (σ' : Status) →
+id-in-domain-prepend : ∀ (Φ : Future-table) (id id' : Id) (σ' : Status) →
   id-in-domain id Φ → id-in-domain id ((id' , σ') ∷ Φ)
 id-in-domain-prepend Φ id id' σ' (σ , lk-eq) with id ≟ id'
 ... | yes _ = σ' , refl
@@ -147,10 +146,10 @@ S-RESOLVE-preserves {ρ} {Φ} {Q} {id} {deps} {combine} {v}
 
     -- Condition 3: No self-cycles. completed is not dependent.
     cond3' : ∀ id' deps' f → lookup-future Φ' id' ≡ just (dependent deps' f) →
-                   no-self-ref id' deps' × NoDup deps'
+                   no-self-ref id' deps' × No-dup deps'
     cond3' id' deps' f lk = go (id' ≟ id)
       where
-        go : Dec (id' ≡ id) → no-self-ref id' deps' × NoDup deps'
+        go : Dec (id' ≡ id) → no-self-ref id' deps' × No-dup deps'
         go (yes refl) with lk-at-id lk
         ... | ()   -- completed ≢ dependent
         go (no neq) = cond3 id' deps' f (lk-to-orig neq lk)
@@ -173,7 +172,7 @@ S-RESOLVE-preserves {ρ} {Φ} {Q} {id} {deps} {combine} {v}
 M-LIFT-OP-preserves : ∀ {ρ Φ Q deps combine} →
   WF ⟨ ρ , Φ , Q ⟩ →
   All (λ d → id-in-domain d Φ) deps →
-  NoDup deps →
+  No-dup deps →
   WF ⟨ ρ , (fresh-id Φ , dependent deps combine) ∷ Φ , Q ⟩
 M-LIFT-OP-preserves {ρ} {Φ} {Q} {deps} {combine}
   (wf-invariant cond1 cond2 cond3 cond4 cond5 cond6) deps-in-dom nodup-deps =
@@ -233,12 +232,12 @@ M-LIFT-OP-preserves {ρ} {Φ} {Q} {deps} {combine}
           all-map (id-in-domain-prepend Φ _ fid (dependent deps combine))
                   (cond2 id σ (lk-to-orig neq lk))
 
-    -- Condition 3: No self-cycles and NoDup. For fid, use fid-not-in-deps and nodup premise.
+    -- Condition 3: No self-cycles and No-dup. For fid, use fid-not-in-deps and nodup premise.
     cond3' : ∀ id deps' f → lookup-future Φ' id ≡ just (dependent deps' f) →
-                   no-self-ref id deps' × NoDup deps'
+                   no-self-ref id deps' × No-dup deps'
     cond3' id deps' f lk = go (id ≟ fid)
       where
-        go : Dec (id ≡ fid) → no-self-ref id deps' × NoDup deps'
+        go : Dec (id ≡ fid) → no-self-ref id deps' × No-dup deps'
         go (yes refl) with lk-at-fid lk
         ... | refl = fid-not-in-deps , nodup-deps
         go (no neq) = cond3 id deps' f (lk-to-orig neq lk)
@@ -315,10 +314,10 @@ M-ASYNC-preserves {ρ} {Φ} {Q} {e} (wf-invariant cond1 cond2 cond3 cond4 cond5 
 
     -- Condition 3: pending ≢ dependent makes yes-case absurd
     cond3' : ∀ id deps f → lookup-future Φ' id ≡ just (dependent deps f) →
-                   no-self-ref id deps × NoDup deps
+                   no-self-ref id deps × No-dup deps
     cond3' id deps f lk = go (id ≟ fid)
       where
-        go : Dec (id ≡ fid) → no-self-ref id deps × NoDup deps
+        go : Dec (id ≡ fid) → no-self-ref id deps × No-dup deps
         go (yes refl) with lk-at-fid lk
         ... | ()
         go (no neq) = cond3 id deps f (lk-to-orig neq lk)
@@ -336,7 +335,7 @@ M-ASYNC-preserves {ρ} {Φ} {Q} {e} (wf-invariant cond1 cond2 cond3 cond4 cond5 
         go (yes refl) = n<1+n fid
         go (no neq)   = m<n⇒m<1+n (cond5 id σ (lk-to-orig neq lk))
 
-    -- Condition 6: NoDup (fid ∷ Q)
+    -- Condition 6: No-dup (fid ∷ Q)
     -- fid ∉ Q because fid ∈ Q would imply (via cond1) that pending exists in Φ for fid,
     -- contradicting fresh-id-not-in-domain.
     fid-not-in-Q : ¬ (fid ∈ Q)
@@ -344,7 +343,7 @@ M-ASYNC-preserves {ρ} {Φ} {Q} {e} (wf-invariant cond1 cond2 cond3 cond4 cond5 
       let (_ , _ , lk) = proj₁ (cond1 fid) mem in
       fresh-id-not-in-domain Φ cond5 (pending _ _ , lk)
 
-    cond6' : NoDup (fid ∷ Q)
+    cond6' : No-dup (fid ∷ Q)
     cond6' = fid-not-in-Q , cond6
 
 -- ============================================================================
@@ -378,7 +377,7 @@ filter-out-inv target id (x ∷ xs) (there mem) | no _ with filter-out-inv targe
 ... | (mem' , neq) = there mem' , neq
 
 filter-out-nodup : ∀ (target : Id) (Q : List Id) →
-  NoDup Q → NoDup (filter-out target Q)
+  No-dup Q → No-dup (filter-out target Q)
 filter-out-nodup target [] nd = tt
 filter-out-nodup target (x ∷ xs) (x∉xs , nd-xs) with target ≟ x
 ... | yes _ = filter-out-nodup target xs nd-xs
@@ -446,10 +445,10 @@ S-COMPLETE-preserves {ρ} {Φ} {Q} {id} {v} {ρ'}
 
     -- Condition 3: No self-cycles. completed is not dependent.
     cond3' : ∀ id' deps' f → lookup-future Φ' id' ≡ just (dependent deps' f) →
-                   no-self-ref id' deps' × NoDup deps'
+                   no-self-ref id' deps' × No-dup deps'
     cond3' id' deps' f lk = go (id' ≟ id)
       where
-        go : Dec (id' ≡ id) → no-self-ref id' deps' × NoDup deps'
+        go : Dec (id' ≡ id) → no-self-ref id' deps' × No-dup deps'
         go (yes refl) with lk-at-id lk
         ... | ()   -- completed ≢ dependent
         go (no neq) = cond3 id' deps' f (lk-to-orig neq lk)
@@ -467,8 +466,8 @@ S-COMPLETE-preserves {ρ} {Φ} {Q} {id} {v} {ρ'}
         go (yes refl) = m<n⇒m<1+n id<fid
         go (no neq)   = m<n⇒m<1+n (cond5 id' σ (lk-to-orig neq lk))
 
-    -- Condition 6: NoDup (filter-out id Q)
-    cond6' : NoDup (filter-out id Q)
+    -- Condition 6: No-dup (filter-out id Q)
+    cond6' : No-dup (filter-out id Q)
     cond6' = filter-out-nodup id Q cond6
 
 -- ============================================================================
@@ -497,14 +496,14 @@ WF-subst-Q refl wf = wf
 ... | inj₁ l = inj₁ (there l)
 ... | inj₂ r = inj₂ r
 
-NoDup-++ : ∀ (xs ys : List Id) →
-  NoDup xs → NoDup ys →
+No-dup-++ : ∀ (xs ys : List Id) →
+  No-dup xs → No-dup ys →
   (∀ {x} → x ∈ xs → ¬ (x ∈ ys)) →
-  NoDup (xs ++ ys)
-NoDup-++ [] ys _ nd-ys _ = nd-ys
-NoDup-++ (x ∷ xs) ys (x∉xs , nd-xs) nd-ys disj =
+  No-dup (xs ++ ys)
+No-dup-++ [] ys _ nd-ys _ = nd-ys
+No-dup-++ (x ∷ xs) ys (x∉xs , nd-xs) nd-ys disj =
   (λ mem → helper (∈-++-split xs ys mem))
-  , NoDup-++ xs ys nd-xs nd-ys (λ mem → disj (there mem))
+  , No-dup-++ xs ys nd-xs nd-ys (λ mem → disj (there mem))
   where
     helper : x ∈ xs ⊎ x ∈ ys → ⊥
     helper (inj₁ l) = x∉xs l
@@ -564,10 +563,10 @@ pending-update-preserves {ρ} {Φ} {Q} {id} {e-new} {ρ-new}
                   (cond2 id' σ (lk-to-orig neq lk))
 
     cond3' : ∀ id' deps' f → lookup-future Φ' id' ≡ just (dependent deps' f) →
-                   no-self-ref id' deps' × NoDup deps'
+                   no-self-ref id' deps' × No-dup deps'
     cond3' id' deps' f lk = go (id' ≟ id)
       where
-        go : Dec (id' ≡ id) → no-self-ref id' deps' × NoDup deps'
+        go : Dec (id' ≡ id) → no-self-ref id' deps' × No-dup deps'
         go (yes refl) with lk-at-id lk
         ... | ()   -- pending ≢ dependent
         go (no neq) = cond3 id' deps' f (lk-to-orig neq lk)
@@ -585,10 +584,10 @@ pending-update-preserves {ρ} {Φ} {Q} {id} {e-new} {ρ-new}
 
 -- ============================================================================
 
-nodup-single : ∀ {id : Id} → NoDup (id ∷ [])
+nodup-single : ∀ {id : Id} → No-dup (id ∷ [])
 nodup-single = (λ ()) , tt
 
-nodup-pair : ∀ {id₁ id₂ : Id} → id₁ ≢ id₂ → NoDup (id₁ ∷ id₂ ∷ [])
+nodup-pair : ∀ {id₁ id₂ : Id} → id₁ ≢ id₂ → No-dup (id₁ ∷ id₂ ∷ [])
 nodup-pair neq = (λ { (here refl) → neq refl ; (there ()) }) , (λ ()) , tt
 
 WF-cond5 : ∀ {ρ Φ Q} → WF ⟨ ρ , Φ , Q ⟩ →
@@ -790,12 +789,12 @@ S-SCHEDULE-preserves {ρ} {Φ} {Q} {id} {ρ' = ρ'} wf id∈Q lk-pend (M-ASYNC {
 
         -- Condition 3: No self-cycles. Both new entries are pending, not dependent.
         cond3' : ∀ id' deps' f → lookup-future Φ-result id' ≡ just (dependent deps' f) →
-                       no-self-ref id' deps' × NoDup deps'
+                       no-self-ref id' deps' × No-dup deps'
         cond3' id' deps' f = cond3-go (id' ≟ id) (id' ≟ fid)
           where
             cond3-go : Dec (id' ≡ id) → Dec (id' ≡ fid) →
               lookup-future Φ-result id' ≡ just (dependent deps' f) →
-              no-self-ref id' deps' × NoDup deps'
+              no-self-ref id' deps' × No-dup deps'
             cond3-go (yes refl) _ lk with lk-at-id-result lk
             ... | ()
             cond3-go (no neq) (yes refl) lk with lk-at-fid-result lk
@@ -818,14 +817,14 @@ S-SCHEDULE-preserves {ρ} {Φ} {Q} {id} {ρ' = ρ'} wf id∈Q lk-pend (M-ASYNC {
             cond5-go (no neq) (yes refl) _ = m<n⇒m<1+n (n<1+n fid)
             cond5-go (no neq) (no neq-fid) lk = m<n⇒m<1+n (m<n⇒m<1+n (cond5 id' σ (lk-to-orig neq neq-fid lk)))
 
-        -- Condition 6: NoDup (Q ++ [fid])
+        -- Condition 6: No-dup (Q ++ [fid])
         fid-not-in-Q : ¬ (fid ∈ Q)
         fid-not-in-Q mem =
           let (_ , _ , lk) = proj₁ (cond1 fid) mem in
           fid-fresh (pending _ _ , lk)
 
-        cond6' : NoDup (Q ++ (fid ∷ []))
-        cond6' = NoDup-++ Q (fid ∷ []) cond6 ((λ ()) , tt)
+        cond6' : No-dup (Q ++ (fid ∷ []))
+        cond6' = No-dup-++ Q (fid ∷ []) cond6 ((λ ()) , tt)
                    (λ {x} x∈Q → λ { (here refl) → fid-not-in-Q x∈Q ; (there ()) })
 
 -- ============================================================================
@@ -849,20 +848,20 @@ WF-preserved wf (S-RESOLVE lk _ _) = S-RESOLVE-preserves wf lk
 -- STUCK CHARACTERIZATION  
 -- ============================================================================
 
-IsCompleted : Status → Set
-IsCompleted (completed _) = ⊤
-IsCompleted _ = ⊥
+Is-completed : Status → Set
+Is-completed (completed _) = ⊤
+Is-completed _ = ⊥
 
-data NeedsFuture (e : Expr) (id : Id) : Set where
-  direct : e ≡ value-to-expr (futureV id) → NeedsFuture e id
+data Needs-future (e : Expr) (id : Id) : Set where
+  direct : e ≡ value-to-expr (futureV id) → Needs-future e id
 
 data Stuck : Configuration → Set where
   main-blocked : ∀ {e s id} →
-    NeedsFuture e id →
-    (∃[ σ ] (lookup-future (get-futures s) id ≡ just σ × ¬ IsCompleted σ)) →
+    Needs-future e id →
+    (∃[ σ ] (lookup-future (get-futures s) id ≡ just σ × ¬ Is-completed σ)) →
     (get-queue s ≡ []) →
     Stuck ⟪ e , s ⟫
 
-postulate NeedsFuture' : Expr → Id → Set
+postulate Needs-future' : Expr → Id → Set
 
-postulate stuck-characterization : ∀ {c} → WF (cfg-state c) → Stuck c → (∀ c' → ¬ (c ⟶ c')) → ∃[ id ] ∃[ σ ] (NeedsFuture' (cfg-expr c) id × lookup-future (get-futures (cfg-state c)) id ≡ just σ × ¬ IsCompleted σ × get-queue (cfg-state c) ≡ [])
+postulate stuck-characterization : ∀ {c} → WF (cfg-state c) → Stuck c → (∀ c' → ¬ (c ⟶ c')) → ∃[ id ] ∃[ σ ] (Needs-future' (cfg-expr c) id × lookup-future (get-futures (cfg-state c)) id ≡ just σ × ¬ Is-completed σ × get-queue (cfg-state c) ≡ [])

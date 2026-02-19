@@ -6,7 +6,6 @@ open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax)
 open import Data.Bool using (Bool; true; false)
 open import Data.Nat using (ℕ; _+_; _*_; _∸_; _<ᵇ_; _≡ᵇ_)
-open import Function
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; _≢_)
 
 open import SubAsync
@@ -69,7 +68,7 @@ value-to-expr (boolV b) = bool b
 value-to-expr (futureV id) = future-lit id
 value-to-expr (funV x e ρ) = fun x e
 
-collect-values : FutureTable → List Id → Maybe (List Value)
+collect-values : Future-table → List Id → Maybe (List Value)
 collect-values Φ [] = just []
 collect-values Φ (id ∷ ids) with lookup-future Φ id
 collect-values Φ (id ∷ ids) | just (completed v) with collect-values Φ ids
@@ -79,16 +78,16 @@ collect-values Φ (id ∷ ids) | just (pending _ _) = nothing
 collect-values Φ (id ∷ ids) | just (dependent _ _) = nothing  
 collect-values Φ (id ∷ ids) | nothing = nothing
 
-all-completed : FutureTable → List Id → Bool
+all-completed : Future-table → List Id → Bool
 all-completed Φ [] = true
 all-completed Φ (id ∷ ids) with lookup-future Φ id
 ... | just (completed _) = all-completed Φ ids
 ... | _ = false
 
-merge-futures : FutureTable → FutureTable → FutureTable
+merge-futures : Future-table → Future-table → Future-table
 merge-futures Φ₁ Φ₂ = Φ₁ ++ Φ₂
 
-merge-queues : PendingQueue → PendingQueue → PendingQueue  
+merge-queues : Pending-set → Pending-set → Pending-set  
 merge-queues Q₁ Q₂ = Q₁ ++ Q₂
 
 -- REDUCTION RELATION  

@@ -6,7 +6,6 @@ open import Data.Bool using (Bool; true; false)
 open import Data.List using (List; []; _∷_; length; _++_)
 open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
-open import Function
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; subst)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Data.Empty using (⊥; ⊥-elim)
@@ -84,31 +83,27 @@ postulate CombineFunction : Set
 postulate apply-combine : CombineFunction → List Value → Value
 
 -- FUTURE TABLE (maps ids to status)
-FutureTable : Set  
-FutureTable = List (Id × Status)
+Future-table : Set  
+Future-table = List (Id × Status)
 
 -- Future table lookup
-lookup-future : FutureTable → Id → Maybe Status
+lookup-future : Future-table → Id → Maybe Status
 lookup-future [] id = nothing
 lookup-future ((id' , σ) ∷ Φ) id with id ≟ id'
 ... | yes _ = just σ
 ... | no  _ = lookup-future Φ id
 
 -- PENDING TASK SET (semantically a set; implemented as List for simplicity)
-PendingSet : Set
-PendingSet = List Id
-
--- Backward-compatible alias
-PendingQueue : Set
-PendingQueue = PendingSet
+Pending-set : Set
+Pending-set = List Id
 
 -- STATE COMPONENTS
 record State : Set where
   constructor ⟨_,_,_⟩
   field
     ρ : Env           -- environment
-    Φ : FutureTable   -- future table  
-    Q : PendingSet    -- pending task set
+    Φ : Future-table   -- future table  
+    Q : Pending-set    -- pending task set
 
 -- CONFIGURATION (use record to avoid parser ambiguity with State constructor)
 record Configuration : Set where
@@ -120,10 +115,10 @@ record Configuration : Set where
 get-env : State → Env
 get-env = State.ρ
 
-get-futures : State → FutureTable  
+get-futures : State → Future-table  
 get-futures = State.Φ
 
-get-queue : State → PendingQueue
+get-queue : State → Pending-set
 get-queue = State.Q
 
 cfg-expr : Configuration → Expr

@@ -7,10 +7,9 @@ open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.Any using (Any; here; there)
 open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax)
-open import Data.Unit
-open import Data.Empty
+open import Data.Unit using (⊤; tt)
+open import Data.Empty using (⊥)
 open import Data.Nat using (ℕ; zero; suc; _≟_; _<_; _≤_; s≤s; z≤n)
-open import Function
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; _≢_)
 open import Relation.Nullary using (¬_; Dec; yes; no)
 
@@ -21,10 +20,10 @@ module WellFormedness where
 _↔_ : Set → Set → Set
 A ↔ B = (A → B) × (B → A)
 
-_∈Q_ : Id → PendingSet → Set
+_∈Q_ : Id → Pending-set → Set
 id ∈Q Q = id ∈ Q
 
-id-in-domain : Id → FutureTable → Set  
+id-in-domain : Id → Future-table → Set  
 id-in-domain id Φ = ∃[ σ ] (lookup-future Φ id ≡ just σ)
 
 get-deps : Status → List Id
@@ -32,18 +31,18 @@ get-deps (pending _ _) = []
 get-deps (completed _) = []  
 get-deps (dependent deps _) = deps
 
-NoDup : {A : Set} → List A → Set
-NoDup [] = ⊤  
-NoDup (x ∷ xs) = (¬ (x ∈ xs)) × NoDup xs
+No-dup : {A : Set} → List A → Set
+No-dup [] = ⊤  
+No-dup (x ∷ xs) = (¬ (x ∈ xs)) × No-dup xs
   where open import Data.Unit using (⊤)
 
 no-self-ref : Id → List Id → Set  
 no-self-ref id deps = ¬ (id ∈ deps)
 
--- Fresh id generation: returns length of FutureTable
+-- Fresh id generation: returns length of Future-table
 -- This guarantees the returned id is not already used
 -- (assuming ids are allocated sequentially: 0, 1, 2, ...)
-fresh-id : FutureTable → Id  
+fresh-id : Future-table → Id  
 fresh-id [] = zero
 fresh-id (_ ∷ rest) = suc (fresh-id rest)
 
@@ -61,7 +60,7 @@ data WF (s : State) : Set where
     
     -- 3. No self-cycles and no duplicates in dependency lists
     (∀ id deps f → lookup-future (get-futures s) id ≡ just (dependent deps f) →
-                   no-self-ref id deps × NoDup deps) →
+                   no-self-ref id deps × No-dup deps) →
     
     -- 4. No dangling Future references in environment
     (∀ x id → lookup (get-env s) x ≡ just (futureV id) →
@@ -72,7 +71,7 @@ data WF (s : State) : Set where
               id < fresh-id (get-futures s)) →
     
     -- 6. No duplicates in pending set (Q is semantically a set)
-    NoDup (get-queue s) →
+    No-dup (get-queue s) →
     
     WF s
 
