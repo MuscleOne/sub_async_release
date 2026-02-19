@@ -237,7 +237,7 @@ complete-before : Configuration
 complete-before = ⟪ num 99 , ⟨ [] , ft-pending-value , 0 ∷ [] ⟩ ⟫  -- main expr doesn't matter
 
 -- After S-COMPLETE: 
---   1. remove-from-queue removes 0 from Q → []
+--   1. remove-from-pending removes 0 from Q → []
 --   2. update-future ADDS (0, completed) to FRONT of Φ
 -- So result has TWO entries for id 0 (old pending + new completed)
 ft-completed : Future-table  
@@ -388,7 +388,7 @@ await-if-proof = M-AWAIT-IF lookup-0-bool
 -- =============================================================================
 -- 
 -- Our SEMANTIC rules (S-SCHEDULE, S-COMPLETE, S-RESOLVE) use:
---   id ∈Q Q   -- "pick ANY task from queue"
+--   id ∈Q Q   -- "pick ANY task from pending set"
 --
 -- Our OCaml IMPLEMENTATION (scheduler.ml) uses:
 --   run_all()        -- FIFO order
@@ -458,7 +458,7 @@ await-app2-proof = M-AWAIT-APP2 lookup-0-arg
 -- S-SCHEDULE PROOF: Execute one step of pending Future (MOST COMPLEX!)
 -- =============================================================================
 -- S-SCHEDULE requires:
---   1. id ∈Q Q                    -- task is in queue
+--   1. id ∈Q Q                    -- task is in pending set
 --   2. lookup Φ id = pending e ρ  -- task is pending with expression e
 --   3. ⟪ e, ⟨ρ, Φ, []⟩ ⟫ ⟶ ⟪ e', s' ⟫  -- NESTED PROOF: e can step
 --
@@ -493,7 +493,7 @@ inner-step = M-ASYNC
 
 -- After S-SCHEDULE (fixed: use get-futures s'' directly, no merge):
 -- get-futures s'' = inner-ft-after = [(1, pending (num 10) []), (0, pending (async (num 10)) [])]
--- Q ++ get-queue s'' = [0] ++ [1] = [0, 1]
+-- Q ++ get-pending s'' = [0] ++ [1] = [0, 1]
 -- update-future prepends (0, pending (futureV 1) []) to get-futures s''
 
 -- Result of update-future ... id (pending e'' env'')

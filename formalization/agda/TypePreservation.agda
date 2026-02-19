@@ -564,7 +564,7 @@ postulate
     lookup-future Φ id ≡ just (pending e' ρ') →
     ⟪ e' , ⟨ ρ' , Φ , [] ⟩ ⟫ ⟶ ⟪ e'' , s'' ⟫ →
     ∃[ Σ' ] (Σ' ⊇ Σ ×
-      WT Σ' ⟨ ρ , (id , pending e'' (get-env s'')) ∷ get-futures s'' , Q ++ get-queue s'' ⟩)
+      WT Σ' ⟨ ρ , (id , pending e'' (get-env s'')) ∷ get-futures s'' , Q ++ get-pending s'' ⟩)
 
 -- ============================================================================
 -- MAIN THEOREM: TYPE PRESERVATION

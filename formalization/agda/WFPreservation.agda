@@ -35,11 +35,11 @@ lookup-update-same Φ id σ with id ≟ id
 ... | yes refl = refl
 ... | no  id≢id = ⊥-elim (id≢id refl)
 
-queue-add-preserves : (Q : Pending-set) (id id' : Id) → id' ∈ Q → id' ∈ (id ∷ Q)
-queue-add-preserves Q id id' mem = there mem
+pending-add-preserves : (Q : Pending-set) (id id' : Id) → id' ∈ Q → id' ∈ (id ∷ Q)
+pending-add-preserves Q id id' mem = there mem
 
-queue-add-new : (Q : Pending-set) (id : Id) → id ∈ (id ∷ Q)
-queue-add-new Q id = here refl
+pending-add-new : (Q : Pending-set) (id : Id) → id ∈ (id ∷ Q)
+pending-add-new Q id = here refl
 
 lookup-prepend-neq : ∀ (Φ : Future-table) (id id' : Id) (σ : Status) →
   id ≢ id' → lookup-future ((id' , σ) ∷ Φ) id ≡ lookup-future Φ id
@@ -256,7 +256,7 @@ M-LIFT-OP-preserves {ρ} {Φ} {Q} {deps} {combine}
         go (no neq)   = m<n⇒m<1+n (cond5 id σ (lk-to-orig neq lk))
 
 -- Case M-ASYNC: async e → Future(id)
--- Creates fresh pending future and adds to queue. FULLY PROVEN.
+-- Creates fresh pending future and adds to pending set. FULLY PROVEN.
 M-ASYNC-preserves : ∀ {ρ Φ Q e} →
   WF ⟨ ρ , Φ , Q ⟩ →
   WF ⟨ ρ , (fresh-id Φ , pending e ρ) ∷ Φ , fresh-id Φ ∷ Q ⟩
@@ -603,7 +603,7 @@ S-SCHEDULE-preserves : ∀ {ρ Φ Q id e' ρ' e'' s''} →
   id ∈ Q →
   lookup-future Φ id ≡ just (pending e' ρ') →
   ⟪ e' , ⟨ ρ' , Φ , [] ⟩ ⟫ ⟶ ⟪ e'' , s'' ⟫ →
-  WF ⟨ ρ , (id , pending e'' (get-env s'')) ∷ get-futures s'' , Q ++ get-queue s'' ⟩
+  WF ⟨ ρ , (id , pending e'' (get-env s'')) ∷ get-futures s'' , Q ++ get-pending s'' ⟩
 
 -- Substep = M-AWAIT: state unchanged, s'' = ⟨ ρ', Φ, [] ⟩
 S-SCHEDULE-preserves {ρ} {Φ} {Q} {id} wf id∈Q lk-pend (M-AWAIT _) =
@@ -859,9 +859,9 @@ data Stuck : Configuration → Set where
   main-blocked : ∀ {e s id} →
     Needs-future e id →
     (∃[ σ ] (lookup-future (get-futures s) id ≡ just σ × ¬ Is-completed σ)) →
-    (get-queue s ≡ []) →
+    (get-pending s ≡ []) →
     Stuck ⟪ e , s ⟫
 
 postulate Needs-future' : Expr → Id → Set
 
-postulate stuck-characterization : ∀ {c} → WF (cfg-state c) → Stuck c → (∀ c' → ¬ (c ⟶ c')) → ∃[ id ] ∃[ σ ] (Needs-future' (cfg-expr c) id × lookup-future (get-futures (cfg-state c)) id ≡ just σ × ¬ Is-completed σ × get-queue (cfg-state c) ≡ [])
+postulate stuck-characterization : ∀ {c} → WF (cfg-state c) → Stuck c → (∀ c' → ¬ (c ⟶ c')) → ∃[ id ] ∃[ σ ] (Needs-future' (cfg-expr c) id × lookup-future (get-futures (cfg-state c)) id ≡ just σ × ¬ Is-completed σ × get-pending (cfg-state c) ≡ [])

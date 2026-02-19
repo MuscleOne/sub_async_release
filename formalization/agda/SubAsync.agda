@@ -118,8 +118,8 @@ get-env = State.ρ
 get-futures : State → Future-table  
 get-futures = State.Φ
 
-get-queue : State → Pending-set
-get-queue = State.Q
+get-pending : State → Pending-set
+get-pending = State.Q
 
 cfg-expr : Configuration → Expr
 cfg-expr = Configuration.expr

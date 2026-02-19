@@ -87,8 +87,8 @@ all-completed Φ (id ∷ ids) with lookup-future Φ id
 merge-futures : Future-table → Future-table → Future-table
 merge-futures Φ₁ Φ₂ = Φ₁ ++ Φ₂
 
-merge-queues : Pending-set → Pending-set → Pending-set  
-merge-queues Q₁ Q₂ = Q₁ ++ Q₂
+merge-pending : Pending-set → Pending-set → Pending-set  
+merge-pending Q₁ Q₂ = Q₁ ++ Q₂
 
 -- REDUCTION RELATION  
 -- ⟨e, s⟩ → ⟨e', s'⟩
@@ -97,7 +97,7 @@ data _⟶_ : Configuration → Configuration → Set where
   -- M-ASYNC: async e → Future(id), add to pending
   M-ASYNC : ∀ {e ρ Φ Q} →
     let id = fresh-id Φ in
-    let s' = update-future (add-to-queue ⟨ ρ , Φ , Q ⟩ id) id (pending e ρ) in
+    let s' = update-future (add-to-pending ⟨ ρ , Φ , Q ⟩ id) id (pending e ρ) in
     ⟪ async e , ⟨ ρ , Φ , Q ⟩ ⟫ ⟶ ⟪ value-to-expr (futureV id) , s' ⟫
 
   -- M-LIFT-OP-FF: Future op Future → new Dependent Future  
@@ -156,7 +156,7 @@ data _⟶_ : Configuration → Configuration → Set where
     lookup-future Φ id ≡ just (pending e' ρ') →  
     ⟪ e' , ⟨ ρ' , Φ , [] ⟩ ⟫ ⟶ ⟪ e'' , s'' ⟫ →
     ⟪ e , ⟨ ρ , Φ , Q ⟩ ⟫ ⟶ 
-    ⟪ e , update-future ⟨ ρ , get-futures s'' , Q ++ get-queue s'' ⟩ 
+    ⟪ e , update-future ⟨ ρ , get-futures s'' , Q ++ get-pending s'' ⟩ 
            id (pending e'' (get-env s'')) ⟫
 
   -- S-COMPLETE: Pending → Completed when expression is value
@@ -164,7 +164,7 @@ data _⟶_ : Configuration → Configuration → Set where
     id ∈Q Q →
     lookup-future Φ id ≡ just (pending (value-to-expr v) ρ') →
     ⟪ e , ⟨ ρ , Φ , Q ⟩ ⟫ ⟶  
-    ⟪ e , update-future (remove-from-queue ⟨ ρ , Φ , Q ⟩ id) id (completed v) ⟫
+    ⟪ e , update-future (remove-from-pending ⟨ ρ , Φ , Q ⟩ id) id (completed v) ⟫
 
   -- S-RESOLVE: Dependent → Completed when all deps ready
   S-RESOLVE : ∀ {e ρ Φ Q id deps combine vs} →

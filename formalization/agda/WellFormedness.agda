@@ -51,7 +51,7 @@ fresh-id (_ ∷ rest) = suc (fresh-id rest)
 data WF (s : State) : Set where
   wf-invariant : 
     -- 1. Q tracks exactly the pending Futures
-    (∀ id → (id ∈Q (get-queue s)) ↔ 
+    (∀ id → (id ∈Q (get-pending s)) ↔ 
              (∃[ e ] ∃[ ρ ] (lookup-future (get-futures s) id ≡ just (pending e ρ)))) →
     
     -- 2. No dangling dependencies  
@@ -71,7 +71,7 @@ data WF (s : State) : Set where
               id < fresh-id (get-futures s)) →
     
     -- 6. No duplicates in pending set (Q is semantically a set)
-    No-dup (get-queue s) →
+    No-dup (get-pending s) →
     
     WF s
 
@@ -80,9 +80,9 @@ data WF (s : State) : Set where
 update-future : State → Id → Status → State
 update-future ⟨ ρ , Φ , Q ⟩ id σ = ⟨ ρ , (id , σ) ∷ Φ , Q ⟩
 
--- s ⊕ id - add to queue
-add-to-queue : State → Id → State  
-add-to-queue ⟨ ρ , Φ , Q ⟩ id = ⟨ ρ , Φ , id ∷ Q ⟩
+-- s ⊕ id - add to pending set
+add-to-pending : State → Id → State  
+add-to-pending ⟨ ρ , Φ , Q ⟩ id = ⟨ ρ , Φ , id ∷ Q ⟩
 
 filter-out : Id → List Id → List Id
 filter-out _ [] = []
@@ -90,6 +90,6 @@ filter-out target (x ∷ xs) with target ≟ x
 ... | yes _ = filter-out target xs
 ... | no  _ = x ∷ filter-out target xs
 
--- s ⊖ id - remove from queue
-remove-from-queue : State → Id → State
-remove-from-queue ⟨ ρ , Φ , Q ⟩ id = ⟨ ρ , Φ , filter-out id Q ⟩
+-- s ⊖ id - remove from pending set
+remove-from-pending : State → Id → State
+remove-from-pending ⟨ ρ , Φ , Q ⟩ id = ⟨ ρ , Φ , filter-out id Q ⟩
