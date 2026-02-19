@@ -96,37 +96,67 @@ apply-op-typed div (numV m) (numV (suc n)) _ refl = TV-Num
 apply-op-typed lt  (numV m) (numV n) _ refl = TV-Bool
 apply-op-typed eq  (numV m) (numV n) _ refl = TV-Bool
 -- Absurd: first value arg is not numV (apply-op returns nothing)
-apply-op-typed _ (boolV _) _ _ ()
-apply-op-typed _ (futureV _) _ _ ()
-apply-op-typed _ (funV _ _ _) _ _ ()
+apply-op-typed add (boolV _) _ _ ()
+apply-op-typed sub (boolV _) _ _ ()
+apply-op-typed mul (boolV _) _ _ ()
+apply-op-typed div (boolV _) _ _ ()
+apply-op-typed lt  (boolV _) _ _ ()
+apply-op-typed eq  (boolV _) _ _ ()
+apply-op-typed add (futureV _) _ _ ()
+apply-op-typed sub (futureV _) _ _ ()
+apply-op-typed mul (futureV _) _ _ ()
+apply-op-typed div (futureV _) _ _ ()
+apply-op-typed lt  (futureV _) _ _ ()
+apply-op-typed eq  (futureV _) _ _ ()
+apply-op-typed add (funV _ _ _) _ _ ()
+apply-op-typed sub (funV _ _ _) _ _ ()
+apply-op-typed mul (funV _ _ _) _ _ ()
+apply-op-typed div (funV _ _ _) _ _ ()
+apply-op-typed lt  (funV _ _ _) _ _ ()
+apply-op-typed eq  (funV _ _ _) _ _ ()
 -- Absurd: first value arg is numV but second is not
-apply-op-typed _ (numV _) (boolV _) _ ()
-apply-op-typed _ (numV _) (futureV _) _ ()
-apply-op-typed _ (numV _) (funV _ _ _) _ ()
+apply-op-typed add (numV _) (boolV _) _ ()
+apply-op-typed sub (numV _) (boolV _) _ ()
+apply-op-typed mul (numV _) (boolV _) _ ()
+apply-op-typed div (numV _) (boolV _) _ ()
+apply-op-typed lt  (numV _) (boolV _) _ ()
+apply-op-typed eq  (numV _) (boolV _) _ ()
+apply-op-typed add (numV _) (futureV _) _ ()
+apply-op-typed sub (numV _) (futureV _) _ ()
+apply-op-typed mul (numV _) (futureV _) _ ()
+apply-op-typed div (numV _) (futureV _) _ ()
+apply-op-typed lt  (numV _) (futureV _) _ ()
+apply-op-typed eq  (numV _) (futureV _) _ ()
+apply-op-typed add (numV _) (funV _ _ _) _ ()
+apply-op-typed sub (numV _) (funV _ _ _) _ ()
+apply-op-typed mul (numV _) (funV _ _ _) _ ()
+apply-op-typed div (numV _) (funV _ _ _) _ ()
+apply-op-typed lt  (numV _) (funV _ _ _) _ ()
+apply-op-typed eq  (numV _) (funV _ _ _) _ ()
 
 -- combine-binary produces correct type for 2-element lists
 combine-binary-typed : ∀ {Σ op} → (vs : List Value) →
     length vs ≡ 2 → Σ ⊢v combine-binary op vs ∶ op-range op
 combine-binary-typed {Σ} {op} (v₁ ∷ v₂ ∷ []) refl
-  with apply-op op v₁ v₂ | inspect (apply-op op v₁) v₂
-... | just v  | [ eq ] = apply-op-typed op v₁ v₂ v eq
-... | nothing | _      = op-default-typed op
+  with apply-op op v₁ v₂ in eq
+... | just v  = apply-op-typed op v₁ v₂ v eq
+... | nothing = op-default-typed op
 
 -- combine-unary-left produces correct type for 1-element lists
 combine-unary-left-typed : ∀ {Σ op v₂} → (vs : List Value) →
     length vs ≡ 1 → Σ ⊢v combine-unary-left op v₂ vs ∶ op-range op
 combine-unary-left-typed {Σ} {op} {v₂} (v₁ ∷ []) refl
-  with apply-op op v₁ v₂ | inspect (apply-op op v₁) v₂
-... | just v  | [ eq ] = apply-op-typed op v₁ v₂ v eq
-... | nothing | _      = op-default-typed op
+  with apply-op op v₁ v₂ in eq
+... | just v  = apply-op-typed op v₁ v₂ v eq
+... | nothing = op-default-typed op
 
 -- combine-unary-right produces correct type for 1-element lists
 combine-unary-right-typed : ∀ {Σ op v₁} → (vs : List Value) →
     length vs ≡ 1 → Σ ⊢v combine-unary-right op v₁ vs ∶ op-range op
 combine-unary-right-typed {Σ} {op} {v₁} (v₂ ∷ []) refl
-  with apply-op op v₁ v₂ | inspect (apply-op op v₁) v₂
-... | just v  | [ eq ] = apply-op-typed op v₁ v₂ v eq
-... | nothing | _      = op-default-typed op
+  with apply-op op v₁ v₂ in eq
+... | just v  = apply-op-typed op v₁ v₂ v eq
+... | nothing = op-default-typed op
 
 -- ============================================================================
 -- STORE TYPING EXTENSION (⊇-fresh): PROVEN
@@ -470,15 +500,15 @@ just-injective refl = refl
 collect-values-length : ∀ {Φ : FutureTable} {deps : List Id} {vs : List Value} →
   collect-values Φ deps ≡ just vs → length vs ≡ length deps
 collect-values-length {_} {[]} refl = refl
-collect-values-length {Φ} {id ∷ ids} eq with lookup-future Φ id
+collect-values-length {Φ} {id ∷ ids} _ with lookup-future Φ id
 collect-values-length {_} {_ ∷ _} () | just (pending _ _)
 collect-values-length {_} {_ ∷ _} () | just (dependent _ _)
 collect-values-length {_} {_ ∷ _} () | nothing
-collect-values-length {Φ} {_ ∷ ids} eq | just (completed v)
-  with collect-values Φ ids | inspect (collect-values Φ) ids
-collect-values-length {_} {_ ∷ _} () | just (completed _) | nothing | _
-collect-values-length {_} {_ ∷ ids} refl | just (completed _) | just vs' | [ eqc ] =
-  cong suc (collect-values-length eqc)
+collect-values-length {Φ} {_ ∷ ids} _ | just (completed v)
+  with collect-values Φ ids in eqc
+collect-values-length {_} {_ ∷ _} () | just (completed _) | nothing
+collect-values-length {_} {_ ∷ ids} refl | just (completed _) | just vs' =
+  cong suc (collect-values-length {deps = ids} {vs = vs'} eqc)
 
 S-RESOLVE-type-preserves : ∀ {Σ ρ Φ Q id deps combine vs} →
   WT Σ ⟨ ρ , Φ , Q ⟩ →

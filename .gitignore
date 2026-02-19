@@ -28,3 +28,5 @@ artifacts/
 # OS
 .DS_Store
 Thumbs.db
+*.bak
+icfp26_submission_bundle/out/
