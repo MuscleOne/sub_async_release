@@ -51,7 +51,6 @@ data _<:_ : Ty → Ty → Set where
 -- OPERATOR SIGNATURES
 -- ============================================================================
 
--- Domain type for first operand
 op-domain₁ : Op → Ty
 op-domain₁ add = int-ty
 op-domain₁ sub = int-ty
@@ -60,7 +59,6 @@ op-domain₁ div = int-ty
 op-domain₁ lt  = int-ty
 op-domain₁ eq  = int-ty
 
--- Domain type for second operand
 op-domain₂ : Op → Ty
 op-domain₂ = op-domain₁  -- all ops are int × int in this calculus
 
@@ -77,22 +75,18 @@ op-range eq  = bool-ty
 -- TYPE CONTEXT AND STORE TYPING
 -- ============================================================================
 
--- Typing context: maps variables to types
 TyCtx : Set
 TyCtx = List (Var × Ty)
 
--- Store typing: maps Future ids to types
 StoreTy : Set
 StoreTy = List (Id × Ty)
 
--- Lookup in type context
 lookup-ctx : TyCtx → Var → Maybe Ty
 lookup-ctx [] _ = nothing
 lookup-ctx ((y , τ) ∷ Γ) x with x ≟ᵥ y
 ... | yes _ = just τ
 ... | no  _ = lookup-ctx Γ x
 
--- Lookup in store typing
 lookup-store : StoreTy → Id → Maybe Ty
 lookup-store [] _ = nothing
 lookup-store ((id' , τ) ∷ Σ) id with id ≟ id'
@@ -221,7 +215,6 @@ mutual
 -- WELL-TYPED STATE (WT)
 -- ============================================================================
 
--- Environment is well-typed w.r.t. store typing and type context
 data EnvTyped : StoreTy → Env → TyCtx → Set where
   env-nil : ∀ {Σ} → EnvTyped Σ [] []
   env-cons : ∀ {Σ x v τ ρ Γ} →
@@ -229,15 +222,12 @@ data EnvTyped : StoreTy → Env → TyCtx → Set where
     EnvTyped Σ ρ Γ →
     EnvTyped Σ ((x , v) ∷ ρ) ((x , τ) ∷ Γ)
 
--- A single Future entry is well-typed
 data EntryTyped (Σ : StoreTy) : Status → Ty → Set where
-  -- Pending(e, ρ): expression e has type τ under some well-typed environment
   ET-Pending : ∀ {e ρ τ Γ} →
     EnvTyped Σ ρ Γ →
     Σ ； Γ ⊢ e ∶ τ →
     EntryTyped Σ (pending e ρ) τ
 
-  -- Completed(v): value v has type τ
   ET-Completed : ∀ {v τ} →
     Σ ⊢v v ∶ τ →
     EntryTyped Σ (completed v) τ
@@ -254,10 +244,8 @@ data EntryTyped (Σ : StoreTy) : Status → Ty → Set where
     (∀ vs → length vs ≡ length deps → Σ ⊢v f vs ∶ τ) →
     EntryTyped Σ (dependent deps f) τ
 
--- Well-typed state: every Future entry in Φ is typed consistently with Σ
 data WT : StoreTy → State → Set where
   wt-state : ∀ {Σ ρ Φ Q Γ} →
-    -- Environment is well-typed
     EnvTyped Σ ρ Γ →
     -- Every Future entry is well-typed
     (∀ id σ τ →

@@ -47,14 +47,12 @@ module TypePreservation where
 -- AUXILIARY LEMMAS
 -- ============================================================================
 
--- Store typing lookup after prepend (same id)
 lookup-store-same : ∀ (Σ : StoreTy) (id : Id) (τ : Ty) →
   lookup-store ((id , τ) ∷ Σ) id ≡ just τ
 lookup-store-same Σ id τ with id ≟ id
 ... | yes _ = refl
 ... | no neq = ⊥-elim (neq refl)
 
--- Store typing lookup after prepend (different id)
 lookup-store-neq : ∀ (Σ : StoreTy) (id id' : Id) (τ : Ty) →
   id ≢ id' →
   lookup-store ((id' , τ) ∷ Σ) id ≡ lookup-store Σ id
@@ -62,7 +60,6 @@ lookup-store-neq Σ id id' τ neq with id ≟ id'
 ... | yes id≡id' = ⊥-elim (neq id≡id')
 ... | no _ = refl
 
--- Extract cond5 (AllIdsBelow) from WF
 WF-cond5 : ∀ {ρ Φ Q} → WF ⟨ ρ , Φ , Q ⟩ →
   (∀ id σ → lookup-future Φ id ≡ just σ → id < fresh-id Φ)
 WF-cond5 (wf-invariant _ _ _ _ cond5 _) = cond5
@@ -74,7 +71,6 @@ WF-cond5 (wf-invariant _ _ _ _ cond5 _) = cond5
 -- defaults, and all three lemmas are fully proven.
 -- ============================================================================
 
--- Default value for each op has the correct type
 op-default-typed : ∀ {Σ} → (op : Op) → Σ ⊢v op-default op ∶ op-range op
 op-default-typed add = TV-Num
 op-default-typed sub = TV-Num
@@ -134,7 +130,6 @@ apply-op-typed div (numV _) (funV _ _ _) _ ()
 apply-op-typed lt  (numV _) (funV _ _ _) _ ()
 apply-op-typed eq  (numV _) (funV _ _ _) _ ()
 
--- combine-binary produces correct type for 2-element lists
 combine-binary-typed : ∀ {Σ op} → (vs : List Value) →
     length vs ≡ 2 → Σ ⊢v combine-binary op vs ∶ op-range op
 combine-binary-typed {Σ} {op} (v₁ ∷ v₂ ∷ []) refl
@@ -142,7 +137,6 @@ combine-binary-typed {Σ} {op} (v₁ ∷ v₂ ∷ []) refl
 ... | just v  = apply-op-typed op v₁ v₂ v eq
 ... | nothing = op-default-typed op
 
--- combine-unary-left produces correct type for 1-element lists
 combine-unary-left-typed : ∀ {Σ op v₂} → (vs : List Value) →
     length vs ≡ 1 → Σ ⊢v combine-unary-left op v₂ vs ∶ op-range op
 combine-unary-left-typed {Σ} {op} {v₂} (v₁ ∷ []) refl
@@ -150,7 +144,6 @@ combine-unary-left-typed {Σ} {op} {v₂} (v₁ ∷ []) refl
 ... | just v  = apply-op-typed op v₁ v₂ v eq
 ... | nothing = op-default-typed op
 
--- combine-unary-right produces correct type for 1-element lists
 combine-unary-right-typed : ∀ {Σ op v₁} → (vs : List Value) →
     length vs ≡ 1 → Σ ⊢v combine-unary-right op v₁ vs ∶ op-range op
 combine-unary-right-typed {Σ} {op} {v₁} (v₂ ∷ []) refl
@@ -177,7 +170,6 @@ fresh-not-in-store (wt-state _ _ _ Σ→Φ) (wf-invariant _ _ _ _ cond5 _) τ lk
       id<id = cond5 (fresh-id _) σ lk-future
   in <-irrefl refl id<id
 
--- Extending Σ with a fresh id preserves all existing lookups
 ⊇-fresh : ∀ {Σ ρ Φ Q τ} →
   WT Σ ⟨ ρ , Φ , Q ⟩ → WF ⟨ ρ , Φ , Q ⟩ →
   ((fresh-id Φ , τ) ∷ Σ) ⊇ Σ
@@ -187,8 +179,6 @@ fresh-not-in-store (wt-state _ _ _ Σ→Φ) (wf-invariant _ _ _ _ cond5 _) τ lk
 -- FUTURE-LIT INVERSION: PROVEN
 -- ============================================================================
 
--- If future-lit id has type τ, then there exists τ' such that
--- lookup-store Σ id = just τ' and future-ty τ' <: τ.
 -- Proof by induction on the typing derivation.
 -- Only T-FutureLit and T-Sub can type a future-lit expression.
 
@@ -279,7 +269,6 @@ expr-to-value-typed {v = funV x e ρ} typing = funV-typing typing
 -- VALUE-TO-EXPR TYPING BRIDGE: ALL 4 CASES PROVEN
 -- ============================================================================
 
--- Bridges value typing (Σ ⊢v v ∶ τ) to expression typing (Σ ； Γ ⊢ value-to-expr v ∶ τ).
 -- All four value forms are fully proven:
 --   numV    → num         (T-Num)
 --   boolV   → bool        (T-Bool)
@@ -330,8 +319,6 @@ M-AWAIT-type-preserves {_} {_} {id} {v} {_} typing (wt-state _ entry-typed _ _) 
 -- IF-INVERSION LEMMA
 -- ============================================================================
 
--- If `if e₁ then e₂ else e₃` has type τ, then there exists τ' such that
--- e₁ has type bool, both branches have type τ', and τ' <: τ.
 -- Proof by induction on the derivation (only T-If and T-Sub apply).
 if-inversion : ∀ {Σ Γ e₁ e₂ e₃ τ} →
   Σ ； Γ ⊢ if_then_else e₁ e₂ e₃ ∶ τ →

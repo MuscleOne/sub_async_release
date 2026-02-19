@@ -85,7 +85,6 @@ update-future ⟨ ρ , Φ , Q ⟩ id σ = ⟨ ρ , (id , σ) ∷ Φ , Q ⟩
 add-to-queue : State → Id → State  
 add-to-queue ⟨ ρ , Φ , Q ⟩ id = ⟨ ρ , Φ , id ∷ Q ⟩
 
--- Filter out all occurrences of target from list
 filter-out : Id → List Id → List Id
 filter-out _ [] = []
 filter-out target (x ∷ xs) with target ≟ x

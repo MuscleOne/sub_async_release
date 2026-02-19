@@ -25,42 +25,35 @@ module WFPreservation where
 -- AUXILIARY LEMMAS (all proven)
 -- ============================================================================
 
--- Lemma: fresh-id is not in current FutureTable
 -- Proof: condition 5 of WF says all ids < fresh-id, so fresh-id ∉ dom(Φ) by <-irrefl
 fresh-id-not-in-domain : (Φ : FutureTable) →
   (∀ id σ → lookup-future Φ id ≡ just σ → id < fresh-id Φ) →
   ¬ (id-in-domain (fresh-id Φ) Φ)
 fresh-id-not-in-domain Φ all-below (σ , lookup-eq) = <-irrefl refl (all-below (fresh-id Φ) σ lookup-eq)
 
--- Lemma: lookup after update (prepend) returns the new value
 lookup-update-same : (Φ : FutureTable) (id : Id) (σ : Status) → lookup-future ((id , σ) ∷ Φ) id ≡ just σ
 lookup-update-same Φ id σ with id ≟ id
 ... | yes refl = refl
 ... | no  id≢id = ⊥-elim (id≢id refl)
 
--- Lemma: adding to queue preserves membership
 queue-add-preserves : (Q : PendingQueue) (id id' : Id) → id' ∈ Q → id' ∈ (id ∷ Q)
 queue-add-preserves Q id id' mem = there mem
 
--- Lemma: new id is in extended queue
 queue-add-new : (Q : PendingQueue) (id : Id) → id ∈ (id ∷ Q)
 queue-add-new Q id = here refl
 
--- Lemma: lookup with different key falls through to tail
 lookup-prepend-neq : ∀ (Φ : FutureTable) (id id' : Id) (σ : Status) →
   id ≢ id' → lookup-future ((id' , σ) ∷ Φ) id ≡ lookup-future Φ id
 lookup-prepend-neq Φ id id' σ neq with id ≟ id'
 ... | yes id≡id' = ⊥-elim (neq id≡id')
 ... | no  _      = refl
 
--- Lemma: domain membership lifts through prepend
 id-in-domain-prepend : ∀ (Φ : FutureTable) (id id' : Id) (σ' : Status) →
   id-in-domain id Φ → id-in-domain id ((id' , σ') ∷ Φ)
 id-in-domain-prepend Φ id id' σ' (σ , lk-eq) with id ≟ id'
 ... | yes _ = σ' , refl
 ... | no  _ = σ , lk-eq
 
--- Map over All predicate
 all-map : ∀ {A : Set} {P Q : A → Set} {xs : List A} →
   (∀ {x} → P x → Q x) → All P xs → All Q xs
 all-map f All.[] = All.[]
@@ -71,12 +64,10 @@ all-map f (px All.∷ pxs) = f px All.∷ all-map f pxs
 -- ============================================================================
 
 -- Case M-AWAIT: Extract completed value - STATE UNCHANGED
--- This is the trivial case: no state modification means WF preserved
 M-AWAIT-preserves : ∀ {s} → WF s → WF s
 M-AWAIT-preserves wf-s = wf-s
 
 -- Case M-AWAIT-IF, M-AWAIT-APP1, M-AWAIT-APP2: Same as M-AWAIT  
--- These rules only change the expression, not the state
 M-AWAIT-IF-preserves : ∀ {s} → WF s → WF s
 M-AWAIT-IF-preserves wf-s = wf-s
 
@@ -102,16 +93,13 @@ S-RESOLVE-preserves {ρ} {Φ} {Q} {id} {deps} {combine} {v}
   where
     Φ' = (id , completed v) ∷ Φ
 
-    -- id < fresh-id Φ (from cond5 + premise)
     id<fid : id < fresh-id Φ
     id<fid = cond5 id (dependent deps combine) lk-dep
 
-    -- Convert lookup in Φ' to lookup in Φ when id' ≢ id
     lk-to-orig : ∀ {id' σ} → id' ≢ id →
       lookup-future Φ' id' ≡ just σ → lookup-future Φ id' ≡ just σ
     lk-to-orig {id'} neq lk = trans (sym (lookup-prepend-neq Φ id' id (completed v) neq)) lk
 
-    -- Identify σ at id: must be completed v
     lk-at-id : ∀ {σ} → lookup-future Φ' id ≡ just σ → σ ≡ completed v
     lk-at-id lk with trans (sym (lookup-update-same Φ id (completed v))) lk
     ... | refl = refl
@@ -194,21 +182,17 @@ M-LIFT-OP-preserves {ρ} {Φ} {Q} {deps} {combine}
     fid = fresh-id Φ
     Φ' = (fid , dependent deps combine) ∷ Φ
 
-    -- Convert lookup in Φ' to lookup in Φ when id ≢ fid
     lk-to-orig : ∀ {id σ} → id ≢ fid →
       lookup-future Φ' id ≡ just σ → lookup-future Φ id ≡ just σ
     lk-to-orig {id} neq lk = trans (sym (lookup-prepend-neq Φ id fid (dependent deps combine) neq)) lk
 
-    -- Identify σ at fid: must be the dependent we just added
     lk-at-fid : ∀ {σ} → lookup-future Φ' fid ≡ just σ → σ ≡ dependent deps combine
     lk-at-fid lk with trans (sym (lookup-update-same Φ fid (dependent deps combine))) lk
     ... | refl = refl
 
-    -- fresh-id is not in domain of Φ
     fid-fresh : ¬ (id-in-domain fid Φ)
     fid-fresh = fresh-id-not-in-domain Φ cond5
 
-    -- fresh-id is not in deps (if it were, it would be in domain of Φ, contradiction)
     fid-not-in-deps : ¬ (fid ∈ deps)
     fid-not-in-deps fid∈deps = fid-fresh (All.lookup deps-in-dom fid∈deps)
 
@@ -284,12 +268,10 @@ M-ASYNC-preserves {ρ} {Φ} {Q} {e} (wf-invariant cond1 cond2 cond3 cond4 cond5 
     Φ' = (fid , pending e ρ) ∷ Φ
     Q' = fid ∷ Q
 
-    -- Convert lookup in Φ' to Φ when id ≢ fid
     lk-to-orig : ∀ {id σ} → id ≢ fid →
       lookup-future Φ' id ≡ just σ → lookup-future Φ id ≡ just σ
     lk-to-orig {id} neq lk = trans (sym (lookup-prepend-neq Φ id fid (pending e ρ) neq)) lk
 
-    -- Identify σ at fid: must be the pending we just added
     lk-at-fid : ∀ {σ} → lookup-future Φ' fid ≡ just σ → σ ≡ pending e ρ
     lk-at-fid lk with trans (sym (lookup-update-same Φ fid (pending e ρ))) lk
     ... | refl = refl
@@ -369,7 +351,6 @@ M-ASYNC-preserves {ρ} {Φ} {Q} {e} (wf-invariant cond1 cond2 cond3 cond4 cond5 
 -- FILTER-OUT LEMMAS (for S-COMPLETE)
 -- ============================================================================
 
--- Lemma: non-target elements survive filter-out
 filter-out-preserves : ∀ (target id : Id) (Q : List Id) →
   target ≢ id → id ∈ Q → id ∈ filter-out target Q
 filter-out-preserves target id (x ∷ xs) neq (here refl) with target ≟ id
@@ -379,7 +360,6 @@ filter-out-preserves target id (x ∷ xs) neq (there mem) with target ≟ x
 ... | yes _ = filter-out-preserves target id xs neq mem
 ... | no  _ = there (filter-out-preserves target id xs neq mem)
 
--- Lemma: target is excluded from filter-out result
 filter-out-excluded : ∀ (target : Id) (Q : List Id) →
   ¬ (target ∈ filter-out target Q)
 filter-out-excluded target [] ()
@@ -388,7 +368,6 @@ filter-out-excluded target (x ∷ xs) mem | yes _ = filter-out-excluded target x
 filter-out-excluded target (x ∷ xs) (here refl) | no neq = neq refl
 filter-out-excluded target (x ∷ xs) (there mem) | no _ = filter-out-excluded target xs mem
 
--- Lemma: membership in filter-out implies membership in original and non-equality
 filter-out-inv : ∀ (target id : Id) (Q : List Id) →
   id ∈ filter-out target Q → id ∈ Q × target ≢ id
 filter-out-inv target id (x ∷ xs) mem with target ≟ x
@@ -398,7 +377,6 @@ filter-out-inv target id (x ∷ xs) (here refl) | no neq = here refl , neq
 filter-out-inv target id (x ∷ xs) (there mem) | no _ with filter-out-inv target id xs mem
 ... | (mem' , neq) = there mem' , neq
 
--- Lemma: filter-out preserves NoDup
 filter-out-nodup : ∀ (target : Id) (Q : List Id) →
   NoDup Q → NoDup (filter-out target Q)
 filter-out-nodup target [] nd = tt
@@ -420,16 +398,13 @@ S-COMPLETE-preserves {ρ} {Φ} {Q} {id} {v} {ρ'}
     Φ' = (id , completed v) ∷ Φ
     Q' = filter-out id Q
 
-    -- id < fresh-id Φ (from cond5 + premise)
     id<fid : id < fresh-id Φ
     id<fid = cond5 id (pending (value-to-expr v) ρ') lk-pend
 
-    -- Convert lookup in Φ' to lookup in Φ when id' ≢ id
     lk-to-orig : ∀ {id' σ} → id' ≢ id →
       lookup-future Φ' id' ≡ just σ → lookup-future Φ id' ≡ just σ
     lk-to-orig {id'} neq lk = trans (sym (lookup-prepend-neq Φ id' id (completed v) neq)) lk
 
-    -- Identify σ at id: must be completed v
     lk-at-id : ∀ {σ} → lookup-future Φ' id ≡ just σ → σ ≡ completed v
     lk-at-id lk with trans (sym (lookup-update-same Φ id (completed v))) lk
     ... | refl = refl
@@ -535,8 +510,6 @@ NoDup-++ (x ∷ xs) ys (x∉xs , nd-xs) nd-ys disj =
     helper (inj₁ l) = x∉xs l
     helper (inj₂ r) = disj (here refl) r
 
--- Lemma: Updating a pending entry's expression preserves WF
--- (id is already pending in Φ and in Q; we just change the expression/env)
 pending-update-preserves : ∀ {ρ Φ Q id e-new ρ-new} →
   WF ⟨ ρ , Φ , Q ⟩ →
   id ∈ Q →
@@ -612,11 +585,9 @@ pending-update-preserves {ρ} {Φ} {Q} {id} {e-new} {ρ-new}
 
 -- ============================================================================
 
--- NoDup for singleton list (always true)
 nodup-single : ∀ {id : Id} → NoDup (id ∷ [])
 nodup-single = (λ ()) , tt
 
--- NoDup for pair from ≢
 nodup-pair : ∀ {id₁ id₂ : Id} → id₁ ≢ id₂ → NoDup (id₁ ∷ id₂ ∷ [])
 nodup-pair neq = (λ { (here refl) → neq refl ; (there ()) }) , (λ ()) , tt
 
@@ -878,7 +849,6 @@ WF-preserved wf (S-RESOLVE lk _ _) = S-RESOLVE-preserves wf lk
 -- STUCK CHARACTERIZATION  
 -- ============================================================================
 
--- Define when configuration is "stuck"
 IsCompleted : Status → Set
 IsCompleted (completed _) = ⊤
 IsCompleted _ = ⊥
