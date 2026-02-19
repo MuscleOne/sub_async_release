@@ -18,31 +18,25 @@ open import SubAsync
 
 module WellFormedness where
 
--- Helper: biconditional
 _↔_ : Set → Set → Set
 A ↔ B = (A → B) × (B → A)
 
--- Helper: check if id is in pending set
 _∈Q_ : Id → PendingSet → Set
 id ∈Q Q = id ∈ Q
 
--- Helper: check if id is in domain of future table
 id-in-domain : Id → FutureTable → Set  
 id-in-domain id Φ = ∃[ σ ] (lookup-future Φ id ≡ just σ)
 
--- Helper: extract dependency list from Dependent status
 get-deps : Status → List Id
 get-deps (pending _ _) = []
 get-deps (completed _) = []  
 get-deps (dependent deps _) = deps
 
--- Helper: no duplicates in list
 NoDup : {A : Set} → List A → Set
 NoDup [] = ⊤  
 NoDup (x ∷ xs) = (¬ (x ∈ xs)) × NoDup xs
   where open import Data.Unit using (⊤)
 
--- Helper: no self-reference in dependency list
 no-self-ref : Id → List Id → Set  
 no-self-ref id deps = ¬ (id ∈ deps)
 

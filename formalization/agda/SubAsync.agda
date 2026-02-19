@@ -117,7 +117,6 @@ record Configuration : Set where
     expr  : Expr
     state : State
 
--- Projection helpers
 get-env : State → Env
 get-env = State.ρ
 

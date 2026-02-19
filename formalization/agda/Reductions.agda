@@ -14,7 +14,6 @@ open import WellFormedness
 
 module Reductions where
 
--- Helper: apply binary operation to values
 apply-op : Op → Value → Value → Maybe Value
 apply-op add (numV m) (numV n) = just (numV (m + n))
 apply-op sub (numV m) (numV n) = just (numV (m ∸ n)) 
@@ -59,7 +58,6 @@ combine-unary-right op v₁ _ = op-default op
 postulate eval-app : Value → Expr → Expr
 postulate eval-app-val : Value → Value → Expr
 
--- Helper for if-then-else evaluation
 eval-if : Value → Expr → Expr → Expr
 eval-if (boolV true) e₂ e₃ = e₂
 eval-if (boolV false) e₂ e₃ = e₃  
@@ -72,7 +70,6 @@ value-to-expr (boolV b) = bool b
 value-to-expr (futureV id) = future-lit id
 value-to-expr (funV x e ρ) = fun x e  -- ignore captured env for now
 
--- Helper: collect values from completed futures
 collect-values : FutureTable → List Id → Maybe (List Value)
 collect-values Φ [] = just []
 collect-values Φ (id ∷ ids) with lookup-future Φ id
@@ -83,14 +80,12 @@ collect-values Φ (id ∷ ids) | just (pending _ _) = nothing
 collect-values Φ (id ∷ ids) | just (dependent _ _) = nothing  
 collect-values Φ (id ∷ ids) | nothing = nothing
 
--- Helper: all dependencies completed?
 all-completed : FutureTable → List Id → Bool
 all-completed Φ [] = true
 all-completed Φ (id ∷ ids) with lookup-future Φ id
 ... | just (completed _) = all-completed Φ ids
 ... | _ = false
 
--- More helper functions
 merge-futures : FutureTable → FutureTable → FutureTable
 merge-futures Φ₁ Φ₂ = Φ₁ ++ Φ₂  -- simplified merge
 

@@ -286,7 +286,6 @@ expr-to-value-typed {v = funV x e ρ} typing = funV-typing typing
 --   futureV → future-lit  (T-FutureLit)
 --   funV    → fun         (T-Fun)  ← enabled by enriched TV-Fun
 
--- Helper: extract value typing from completed entry
 extract-completed-typing : ∀ {Σ v τ} → EntryTyped Σ (completed v) τ → Σ ⊢v v ∶ τ
 extract-completed-typing (ET-Completed vt) = vt
 
@@ -342,7 +341,7 @@ if-inversion (T-Sub deriv s<:) with if-inversion deriv
 ... | τ' , cond , t-br , f-br , p = τ' , cond , t-br , f-br , <:-trans p s<:
 
 -- ============================================================================
--- EVAL-IF TYPING HELPER
+-- EVAL-IF TYPING
 -- ============================================================================
 
 -- eval-if always returns one of the two branches.
@@ -437,7 +436,6 @@ M-LIFT-OP-VF-type-preserves {Σ} {_} {op} {_} {_} {_} {Φ} _ wt wf =
 -- S-COMPLETE: PROVEN
 -- ============================================================================
 
--- Helper: lookup in prepended future table
 lookup-future-same : ∀ {Φ id σ} → lookup-future ((id , σ) ∷ Φ) id ≡ just σ
 lookup-future-same {_} {id} with id ≟ id
 ... | yes _ = refl
@@ -488,7 +486,6 @@ S-COMPLETE-type-preserves {Σ} {_} {Φ} {_} {id} {v}
     ... | yes refl = completed v , refl
     ... | no _ = let (σ , lk-f) = Σ→Φ id' τ lk-s in σ , lk-f
 
--- Helper: just is injective
 just-injective : ∀ {A : Set} {a b : A} → just a ≡ just b → a ≡ b
 just-injective refl = refl
 
@@ -496,7 +493,6 @@ just-injective refl = refl
 -- S-RESOLVE: PROVEN
 -- ============================================================================
 
--- Helper: collect-values preserves length (proven by structural induction)
 collect-values-length : ∀ {Φ : FutureTable} {deps : List Id} {vs : List Value} →
   collect-values Φ deps ≡ just vs → length vs ≡ length deps
 collect-values-length {_} {[]} refl = refl

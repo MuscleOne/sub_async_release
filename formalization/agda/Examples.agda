@@ -28,7 +28,6 @@ open import Reductions
 
 module Examples where
 
--- Helpers for constructing examples
 postulate varX varY varZ varLeft varRight : Var
 
 -- =============================================================================

@@ -116,7 +116,6 @@ S-RESOLVE-preserves {ρ} {Φ} {Q} {id} {deps} {combine} {v}
     lk-at-id lk with trans (sym (lookup-update-same Φ id (completed v))) lk
     ... | refl = refl
 
-    -- just-injectivity helper
     just-inj : ∀ {A : Set} {x y : A} → _≡_ {_} {Data.Maybe.Maybe A} (just x) (just y) → x ≡ y
     just-inj refl = refl
       where open import Data.Maybe
@@ -501,26 +500,21 @@ S-COMPLETE-preserves {ρ} {Φ} {Q} {id} {v} {ρ'}
 -- S-SCHEDULE PRESERVATION: Case-split on substep
 -- ============================================================================
 
--- Helper: Q ++ [] ≡ Q
 ++-identityʳ : ∀ {A : Set} (xs : List A) → xs ++ [] ≡ xs
 ++-identityʳ [] = refl
 ++-identityʳ (x ∷ xs) = cong (x ∷_) (++-identityʳ xs)
 
--- Helper: transport WF along queue equality
 WF-subst-Q : ∀ {ρ Φ Q Q'} → Q ≡ Q' → WF ⟨ ρ , Φ , Q ⟩ → WF ⟨ ρ , Φ , Q' ⟩
 WF-subst-Q refl wf = wf
 
--- Helper: membership in left part of ++
 ∈-++ˡ : ∀ {A : Set} {x : A} {xs ys : List A} → x ∈ xs → x ∈ (xs ++ ys)
 ∈-++ˡ (here refl) = here refl
 ∈-++ˡ (there mem) = there (∈-++ˡ mem)
 
--- Helper: membership in right part of ++
 ∈-++ʳ : ∀ {A : Set} (xs : List A) {x : A} {ys : List A} → x ∈ ys → x ∈ (xs ++ ys)
 ∈-++ʳ [] mem = mem
 ∈-++ʳ (x ∷ xs) mem = there (∈-++ʳ xs mem)
 
--- Helper: split membership from ++
 ∈-++-split : ∀ {A : Set} {x : A} (xs ys : List A) → x ∈ (xs ++ ys) → x ∈ xs ⊎ x ∈ ys
 ∈-++-split [] ys mem = inj₂ mem
 ∈-++-split (x ∷ xs) ys (here refl) = inj₁ (here refl)
@@ -528,7 +522,6 @@ WF-subst-Q refl wf = wf
 ... | inj₁ l = inj₁ (there l)
 ... | inj₂ r = inj₂ r
 
--- Helper: NoDup for xs ++ ys when xs, ys each NoDup and disjoint
 NoDup-++ : ∀ (xs ys : List Id) →
   NoDup xs → NoDup ys →
   (∀ {x} → x ∈ xs → ¬ (x ∈ ys)) →
@@ -618,8 +611,6 @@ pending-update-preserves {ρ} {Φ} {Q} {id} {e-new} {ρ-new}
         go (no neq) = m<n⇒m<1+n (cond5 id' σ (lk-to-orig neq lk))
 
 -- ============================================================================
--- NODUP HELPERS (moved before S-SCHEDULE-preserves which needs them)
--- ============================================================================
 
 -- NoDup for singleton list (always true)
 nodup-single : ∀ {id : Id} → NoDup (id ∷ [])
@@ -629,7 +620,6 @@ nodup-single = (λ ()) , tt
 nodup-pair : ∀ {id₁ id₂ : Id} → id₁ ≢ id₂ → NoDup (id₁ ∷ id₂ ∷ [])
 nodup-pair neq = (λ { (here refl) → neq refl ; (there ()) }) , (λ ()) , tt
 
--- Helper: extract cond5 (AllIdsBelow) from WF
 WF-cond5 : ∀ {ρ Φ Q} → WF ⟨ ρ , Φ , Q ⟩ →
   (∀ id σ → lookup-future Φ id ≡ just σ → id < fresh-id Φ)
 WF-cond5 (wf-invariant _ _ _ _ cond5 _) = cond5
@@ -756,7 +746,6 @@ S-SCHEDULE-preserves {ρ} {Φ} {Q} {id} {ρ' = ρ'} wf id∈Q lk-pend (M-ASYNC {
         fid-fresh : ¬ (id-in-domain fid Φ)
         fid-fresh = fresh-id-not-in-domain Φ cond5
 
-        -- Lookup helpers for the three-layer Φ: (id, ...) ∷ (fid, ...) ∷ Φ
         lk-result-at-id : lookup-future Φ-result id ≡ just (pending (value-to-expr (futureV fid)) ρ')
         lk-result-at-id = lookup-update-same Φ'' id (pending (value-to-expr (futureV fid)) ρ')
 
