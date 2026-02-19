@@ -22,7 +22,7 @@ data Op : Set where
   add sub mul div : Op
   lt  eq         : Op
 
--- Variables as strings (simplified)
+-- Variables (abstract)
 postulate Var : Set
 postulate _≟ᵥ_ : (x y : Var) → Dec (x ≡ y)
 

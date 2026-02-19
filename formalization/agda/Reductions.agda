@@ -35,7 +35,6 @@ op-default div = numV 0
 op-default lt  = boolV false
 op-default eq  = boolV false
 
--- Simplified combine functions (avoiding complex pattern matching)
 combine-binary : Op → List Value → Value  
 combine-binary op (v₁ ∷ v₂ ∷ []) with apply-op op v₁ v₂
 ... | just v = v
@@ -54,21 +53,21 @@ combine-unary-right op v₁ (v₂ ∷ []) with apply-op op v₁ v₂
 ... | nothing = op-default op
 combine-unary-right op v₁ _ = op-default op
 
--- For now, application is left as postulate (need full λ-calculus)
+-- Postulated: requires full λ-calculus substitution
 postulate eval-app : Value → Expr → Expr
 postulate eval-app-val : Value → Value → Expr
 
 eval-if : Value → Expr → Expr → Expr
 eval-if (boolV true) e₂ e₃ = e₂
 eval-if (boolV false) e₂ e₃ = e₃  
-eval-if _ e₂ e₃ = e₂  -- default case (error handling)
+eval-if _ e₂ e₃ = e₂
 
 -- Convert Value back to Expr (for M-AWAIT)
 value-to-expr : Value → Expr
 value-to-expr (numV n) = num n
 value-to-expr (boolV b) = bool b
 value-to-expr (futureV id) = future-lit id
-value-to-expr (funV x e ρ) = fun x e  -- ignore captured env for now
+value-to-expr (funV x e ρ) = fun x e
 
 collect-values : FutureTable → List Id → Maybe (List Value)
 collect-values Φ [] = just []
@@ -87,7 +86,7 @@ all-completed Φ (id ∷ ids) with lookup-future Φ id
 ... | _ = false
 
 merge-futures : FutureTable → FutureTable → FutureTable
-merge-futures Φ₁ Φ₂ = Φ₁ ++ Φ₂  -- simplified merge
+merge-futures Φ₁ Φ₂ = Φ₁ ++ Φ₂
 
 merge-queues : PendingQueue → PendingQueue → PendingQueue  
 merge-queues Q₁ Q₂ = Q₁ ++ Q₂

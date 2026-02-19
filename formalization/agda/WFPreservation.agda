@@ -883,7 +883,6 @@ IsCompleted : Status → Set
 IsCompleted (completed _) = ⊤
 IsCompleted _ = ⊥
 
--- Simplified: Main expression directly mentions a Future
 data NeedsFuture (e : Expr) (id : Id) : Set where
   direct : e ≡ value-to-expr (futureV id) → NeedsFuture e id
 
