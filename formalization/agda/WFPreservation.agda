@@ -6,9 +6,9 @@ open import Data.List.Relation.Unary.All as All using (All)
 open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Maybe using (just; nothing)  
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
-open import Data.Unit using (⊤; tt)
-open import Data.Empty using (⊥; ⊥-elim)
-open import Function using (_∘_)
+open import Data.Unit
+open import Data.Empty
+open import Function
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; _≢_; subst)
 open import Relation.Nullary using (¬_; Dec; yes; no)
 open import Data.Nat using (ℕ; _≟_; _<_; suc)

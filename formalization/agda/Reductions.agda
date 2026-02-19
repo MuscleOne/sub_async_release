@@ -6,7 +6,7 @@ open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax)
 open import Data.Bool using (Bool; true; false)
 open import Data.Nat using (ℕ; _+_; _*_; _∸_; _<ᵇ_; _≡ᵇ_)
-open import Function using (_∘_)
+open import Function
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; _≢_)
 
 open import SubAsync

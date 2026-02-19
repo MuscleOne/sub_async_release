@@ -6,7 +6,7 @@ open import Data.Bool using (Bool; true; false)
 open import Data.List using (List; []; _∷_; length; _++_)
 open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
-open import Function using (_∘_; id)
+open import Function
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; subst)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Data.Empty using (⊥; ⊥-elim)

@@ -7,10 +7,10 @@ open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.Any using (Any; here; there)
 open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax)
-open import Data.Unit using (⊤; tt)
-open import Data.Empty using (⊥)
+open import Data.Unit
+open import Data.Empty
 open import Data.Nat using (ℕ; zero; suc; _≟_; _<_; _≤_; s≤s; z≤n)
-open import Function using (_∘_)
+open import Function
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; _≢_)
 open import Relation.Nullary using (¬_; Dec; yes; no)
 

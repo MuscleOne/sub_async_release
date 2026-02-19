@@ -16,9 +16,9 @@
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_)
 open import Data.Bool using (Bool; true; false)
 open import Data.List using (List; []; _∷_; _++_)
-open import Data.List.Relation.Unary.Any using (here; there)  -- for ∈Q proofs
+open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Maybe using (just; nothing)
-open import Data.String using (String)
+open import Data.String
 open import Data.Product using (_,_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
